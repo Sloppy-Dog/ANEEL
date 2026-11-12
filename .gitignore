@@ -1,0 +1,30 @@
+# Python: arquivos gerados automaticamente
+__pycache__/
+*.py[cod]
+
+# Ambiente virtual do Python
+venv/
+.venv/
+
+# Arquivos do perfil do navegador (Microsoft Edge / Chrome)
+# Sao criados pela automacao quando o Edge usa a pasta do projeto
+# como --user-data-dir e contem dados pessoais e da conta.
+Perfil_Automacao/
+BrowserMetrics*.pma
+CrashpadMetrics*.pma
+First Run
+FirstLaunchAfterInstallation
+Functional SAN Data*
+Last Browser
+Last Version
+Local State
+MamCache.json
+MamLog.txt
+Variations*
+*.bdic
+
+# Arquivos temporarios do Word e do sistema
+~$*
+Thumbs.db
+desktop.ini
+.DS_Store
