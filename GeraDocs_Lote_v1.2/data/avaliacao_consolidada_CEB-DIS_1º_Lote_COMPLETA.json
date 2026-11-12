@@ -1,0 +1,217 @@
+{
+  "empresa_proponente": "Neoenergia Distribuição Brasília S.A.",
+  "sigla": "Neoenergia Brasília",
+  "cnpj_proponente": "07.522.669/0001-92",
+  "projeto_1": {
+    "codigo_projeto_1": "PE-05160-1810/2018",
+    "tipologia_1": "Rural",
+    "EE_1": "291,20 MWh/ano",
+    "DRP_1": "6,64 kW",
+    "RCB_1": "0,87",
+    "recomenda_1": "Aprovado",
+    "valor_reconhecido_1": "R$ 816.422,85",
+    "glosado_1": "R$ 0,00"
+  },
+  "projeto_2": {
+    "codigo_projeto_2": "PE-05160-1804/2018",
+    "tipologia_2": "Comércio e Serviços",
+    "EE_2": "332,48 MWh/ano",
+    "DRP_2": "41,98 kW",
+    "RCB_2": "0,55",
+    "recomenda_2": "Aprovado",
+    "valor_reconhecido_2": "R$ 806.826,33",
+    "glosado_2": "R$ 0,00"
+  },
+  "projeto_3": {
+    "codigo_projeto_3": "PE-05160-1805/2018",
+    "tipologia_3": "Comércio e Serviços",
+    "EE_3": "343,95 MWh/ano",
+    "DRP_3": "23,26 kW",
+    "RCB_3": "0,63)",
+    "recomenda_3": "Aprovado",
+    "valor_reconhecido_3": "R$ 993.442,49",
+    "glosado_3": "R$ 0,00"
+  },
+  "projeto_4": {
+    "codigo_projeto_4": "PE-05160-1811/2018",
+    "tipologia_4": "Comércio e Serviços",
+    "EE_4": "123,92 MWh/ano",
+    "DRP_4": "4,86 kW",
+    "RCB_4": "0,93",
+    "recomenda_4": "Aprovado",
+    "valor_reconhecido_4": "R$ 352.205,36",
+    "glosado_4": "R$ 0,00"
+  },
+  "projeto_5": {
+    "codigo_projeto_5": "PE-05160-1812/2018",
+    "tipologia_5": "Comércio e Serviços",
+    "EE_5": "1.194,09 MWh/ano",
+    "DRP_5": "178,65 kW",
+    "RCB_5": "0,60",
+    "recomenda_5": "Aprovado",
+    "valor_reconhecido_5": "R$ 2.766.209,22",
+    "glosado_5": "R$ 0,00"
+  },
+  "projeto_6": {
+    "codigo_projeto_6": "PE-05160-1818/2018",
+    "tipologia_6": "Comércio e Serviços",
+    "EE_6": "1.143,68 MWh/ano",
+    "DRP_6": "205,82 kW",
+    "RCB_6": "0,43",
+    "recomenda_6": "Aprovado",
+    "valor_reconhecido_6": "R$ 1.456.256,39",
+    "glosado_6": "R$ 0,00"
+  },
+  "projeto_7": {
+    "codigo_projeto_7": "PE-05160-1819/2018",
+    "tipologia_7": "Poder Público",
+    "EE_7": "471,58 MWh/ano",
+    "DRP_7": "162,41 kW",
+    "RCB_7": "0,66",
+    "recomenda_7": "Aprovado",
+    "valor_reconhecido_7": "R$ 1.299.139,65",
+    "glosado_7": "R$ 0,00"
+  },
+  "projeto_8": {
+    "codigo_projeto_8": "PE-05160-2207/2022",
+    "tipologia_8": "Comércio e Serviços",
+    "EE_8": "768,01 MWh/ano",
+    "DRP_8": "93,00 kW",
+    "RCB_8": "0,37",
+    "recomenda_8": "Aprovado",
+    "valor_reconhecido_8": "R$ 915.801,21",
+    "glosado_8": "R$ 0,00"
+  },
+  "projeto_9": {
+    "codigo_projeto_9": "PE-05160-2301/2023",
+    "tipologia_9": "Poder Público",
+    "EE_9": "356,27 MWh/ano",
+    "DRP_9": "69,94 kW",
+    "RCB_9": "0,32",
+    "recomenda_9": "Aprovado",
+    "valor_reconhecido_9": "R$ 545.449,94",
+    "glosado_9": "R$ 0,00"
+  },
+  "projeto_10": {
+    "codigo_projeto_10": "PE-05160-1501/2015",
+    "tipologia_10": "Poder Público – Projeto Especial (Piloto)",
+    "EE_10": "936,77 MWh/ano",
+    "DRP_10": "82,00 kW",
+    "RCB_10": "0,56 (plurianual); 0,61 (global)",
+    "recomenda_10": "Aprovado",
+    "valor_reconhecido_10": "R$ 1.946.175,01",
+    "glosado_10": "R$ 0,00"
+  },
+  "projeto_11": {
+    "codigo_projeto_11": "PE-05160-1702/2018",
+    "tipologia_11": "Poder Público",
+    "EE_11": "644,03 MWh/ano",
+    "DRP_11": "25,58 kW",
+    "RCB_11": "0,96",
+    "recomenda_11": "Aprovado",
+    "valor_reconhecido_11": "R$ 2.041.750,70",
+    "glosado_11": "R$ 0,00"
+  },
+  "projeto_12": {
+    "codigo_projeto_12": "PE-05160-1814/2018",
+    "tipologia_12": "Comércio e Serviços",
+    "EE_12": "260,58 MWh/ano",
+    "DRP_12": "44,71 kW",
+    "RCB_12": "0,49",
+    "recomenda_12": "Aprovado",
+    "valor_reconhecido_12": "R$ 532.193,48",
+    "glosado_12": "R$ 0,00"
+  },
+  "projeto_13": {
+    "codigo_projeto_13": "PE-05160-1816/2018",
+    "tipologia_13": "Poder Público",
+    "EE_13": "374,16 MWh/ano",
+    "DRP_13": "74,74 kW",
+    "RCB_13": "0,34",
+    "recomenda_13": "Aprovado",
+    "valor_reconhecido_13": "R$ 262.741,80",
+    "glosado_13": "R$ 0,00"
+  },
+  "projeto_14": {
+    "codigo_projeto_14": "PE-05160-2102/2021",
+    "tipologia_14": "Comércio e Serviços",
+    "EE_14": "193,76 MWh/ano",
+    "DRP_14": "17,28 kW",
+    "RCB_14": "0,48",
+    "recomenda_14": "Aprovado",
+    "valor_reconhecido_14": "R$ 437.519,14",
+    "glosado_14": "R$ 0,00"
+  },
+  "projeto_15": {
+    "codigo_projeto_15": "PE-05160-2104/2021",
+    "tipologia_15": "Comércio e Serviços",
+    "EE_15": "249,65 MWh/ano",
+    "DRP_15": "22,10 kW",
+    "RCB_15": "0,72",
+    "recomenda_15": "Aprovado",
+    "valor_reconhecido_15": "R$ 767.906,62",
+    "glosado_15": "R$ 0,00"
+  },
+  "projeto_16": {
+    "codigo_projeto_16": "PE-05160-2206/2022",
+    "tipologia_16": "Serviços Públicos",
+    "EE_16": "505,03 MWh/ano",
+    "DRP_16": "57,76 kW",
+    "RCB_16": "0,53",
+    "recomenda_16": "Aprovado",
+    "valor_reconhecido_16": "R$ 403.611,33",
+    "glosado_16": "R$ 0,00"
+  },
+  "projeto_17": {
+    "codigo_projeto_17": "PE-05160-2208/2023",
+    "tipologia_17": "Educacional",
+    "EE_17": "–",
+    "DRP_17": "–",
+    "RCB_17": "Não aplicável - projeto Educacional",
+    "recomenda_17": "Aprovado",
+    "valor_reconhecido_17": "R$ 4.842.614,90",
+    "glosado_17": "R$ 0,00"
+  },
+  "projeto_18": {
+    "codigo_projeto_18": "PE-05160-2302/2023",
+    "tipologia_18": "Serviços Públicos",
+    "EE_18": "211,35 MWh/ano",
+    "DRP_18": "44,72 kW",
+    "RCB_18": "0,27",
+    "recomenda_18": "Aprovado",
+    "valor_reconhecido_18": "R$ 328.232,96",
+    "glosado_18": "R$ 0,00"
+  },
+  "projeto_19": {
+    "codigo_projeto_19": "PE-05160-2303/2023",
+    "tipologia_19": "Serviços Públicos",
+    "EE_19": "421,60 MWh/ano",
+    "DRP_19": "79,03 kW",
+    "RCB_19": "0,31",
+    "recomenda_19": "Aprovado",
+    "valor_reconhecido_19": "R$ 749.904,95",
+    "glosado_19": "R$ 0,00"
+  },
+  "projeto_20": {
+    "codigo_projeto_20": "PE-05160-2304/2023",
+    "tipologia_20": "Serviços Públicos",
+    "EE_20": "1.374,21 MWh/ano",
+    "DRP_20": "233,72 kW",
+    "RCB_20": "0,14",
+    "recomenda_20": "Aprovado",
+    "valor_reconhecido_20": "R$ 1.076.785,29",
+    "glosado_20": "R$ 0,00"
+  },
+  "projeto_21": {
+    "codigo_projeto_21": "PE-05160-2101/2021",
+    "tipologia_21": "Comércio e Serviços",
+    "EE_21": "111,63 MWh/ano",
+    "DRP_21": "5,41 kW",
+    "RCB_21": "0,73",
+    "recomenda_21": "Aprovado",
+    "valor_reconhecido_21": "R$ 369.815,63",
+    "glosado_21": "R$ 0,00"
+  },
+  "valor_reconhecido_total": "R$ 23.711.005,25",
+  "valor_reconhecido_extenso": "vinte e três milhões, setecentos e onze mil e cinco reais e vinte e cinco centavos"
+}

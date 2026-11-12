@@ -1,0 +1,47 @@
+{
+  "empresa_proponente": "Equatorial Alagoas Distribuidora de Energia S.A.",
+  "sigla": "CEAL",
+  "cnpj_proponente": "12.272.084/0001-00",
+  "projeto_1": {
+    "codigo_projeto_1": "PE-00044-0035/2022",
+    "tipologia_1": "Baixa Renda",
+    "EE_1": "2.420,35 MWh/ano",
+    "DRP_1": "709,06 kW",
+    "RCB_1": "0,37",
+    "recomenda_1": "Aprovado",
+    "valor_reconhecido_1": "R$ 6.983.475,51",
+    "glosado_1": "R$ 0,00"
+  },
+  "projeto_2": {
+    "codigo_projeto_2": "PE-00044-0036/2022",
+    "tipologia_2": "Poder Público",
+    "EE_2": "330,28 MWh/ano",
+    "DRP_2": "40,60 kW",
+    "RCB_2": "0,32",
+    "recomenda_2": "Aprovado",
+    "valor_reconhecido_2": "R$ 466.514,25",
+    "glosado_2": "R$ 0,00"
+  },
+  "projeto_3": {
+    "codigo_projeto_3": "PE-00044-0037/2022",
+    "tipologia_3": "Poder Público",
+    "EE_3": "452,43 MWh/ano",
+    "DRP_3": "54,18 kW",
+    "RCB_3": "0,30",
+    "recomenda_3": "Aprovado",
+    "valor_reconhecido_3": "R$ 468.226,88",
+    "glosado_3": "R$ 0,00"
+  },
+  "projeto_4": {
+    "codigo_projeto_4": "PE-00044-0039/2024",
+    "tipologia_4": "Poder Público",
+    "EE_4": "48,74 MWh/ano",
+    "DRP_4": "19,88 kW",
+    "RCB_4": "0,38",
+    "recomenda_4": "Aprovado",
+    "valor_reconhecido_4": "R$ 165.842,62",
+    "glosado_4": "R$ 0,00"
+  },
+  "valor_reconhecido_total": "R$ 8.084.059,26",
+  "valor_reconhecido_extenso": "oito milhões, oitenta e quatro mil e cinquenta e nove reais e vinte e seis centavos"
+}
