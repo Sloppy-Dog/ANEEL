@@ -1,0 +1,37 @@
+{
+  "empresa_proponente": "Companhia Leste Paulista de Energia",
+  "sigla": "CPFL Leste Paulista",
+  "cnpj_proponente": "61.015.582/0001-74",
+  "projeto_1": {
+    "codigo_projeto_1": "PE-00071-0007/2014",
+    "tipologia_1": "Baixa Renda",
+    "EE_1": "144,82 MWh/ano",
+    "DRP_1": "34,41 kW",
+    "RCB_1": "0,32",
+    "recomenda_1": "Aprovado",
+    "valor_reconhecido_1": "R$ 119.634,55",
+    "glosado_1": "R$ 0,00"
+  },
+  "projeto_2": {
+    "codigo_projeto_2": "PE-00071-0006/2011",
+    "tipologia_2": "Baixa Renda",
+    "EE_2": "264,63 MWh/ano",
+    "DRP_2": "208,10 kW",
+    "RCB_2": "0,55",
+    "recomenda_2": "Aprovado",
+    "valor_reconhecido_2": "R$ 591.295,44",
+    "glosado_2": "R$ 0,00"
+  },
+  "projeto_3": {
+    "codigo_projeto_3": "PE-00071-0009/2015",
+    "tipologia_3": "Poder Público",
+    "EE_3": "172,97 MWh/ano",
+    "DRP_3": "15,17 kW",
+    "RCB_3": "0,35",
+    "recomenda_3": "Aprovado",
+    "valor_reconhecido_3": "R$ 202.069,97",
+    "glosado_3": "R$ 0,00"
+  },
+  "valor_reconhecido_total": "R$ 912.999,96",
+  "valor_reconhecido_extenso": "novecentos e doze mil novecentos e noventa e nove reais e noventa e seis centavos"
+}
