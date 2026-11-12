@@ -1,0 +1,277 @@
+================================================================================
+
+          GUIA RÁPIDO DE COMANDOS — AUTOMAÇÃO OPEE + AGENTE COPILOT
+
+================================================================================
+
+
+
+--------------------------------------------------------------------------------
+
+0. PREPARAÇÃO DO AMBIENTE (RODAR SEMPRE QUE LIGAR O COMPUTADOR)
+
+--------------------------------------------------------------------------------
+
+1) Abrir o Microsoft Edge com a porta de depuração 9222 liberada:
+
+   start msedge.exe --remote-debugging-port=9222 --user-data-dir="C:\Temp\Perfil_Automacao"
+
+
+
+   (Após abrir o navegador com o comando acima, deixe uma aba logada no OPEE
+
+    e outra aba logada no Microsoft Copilot).
+
+
+
+2) Entrar na pasta do projeto e ativar o ambiente virtual (venv):
+
+   cd C:\automacao_opee
+
+   venv\Scripts\activate
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+1. RESUMO DOS ARQUIVOS DO PROJETO
+
+--------------------------------------------------------------------------------
+
+- config.py             : Centraliza os caminhos das pastas (01_Baixados_OPEE até
+
+                          04_Erros), nome do agente (NOME_AGENTE_COPILOT), URLs
+
+                          e a meta padrão de projetos. (Não executa direto).
+
+- controle_downloads.py : Gerencia o histórico persistente em projetos_baixados.txt
+
+                          com gravação atômica para evitar downloads duplicados.
+
+                          (Não executa direto).
+
+- main.py               : Orquestrador principal que une a coleta no OPEE e a
+
+                          análise paralela no Copilot em um único comando.
+
+- worker_copilot.py     : Processa apenas a fila de projetos já baixados em
+
+                          01_Baixados_OPEE no Copilot (suporta múltiplas abas).
+
+- scraper_opee.py       : Faz apenas o download sequencial e paginação no OPEE,
+
+                          salvando os arquivos prontos em 01_Baixados_OPEE.
+
+- teste_conexao.py      : Conecta na porta 9222 e abre o gravador do Playwright
+
+                          (Inspector) para inspecionar elementos da tela.
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+2. COMANDOS DO ORQUESTRADOR COMPLETO (main.py)
+
+   Une o download no OPEE + processamento no Copilot automaticamente.
+
+--------------------------------------------------------------------------------
+
+- Rodar com a configuração padrão (baixa 5 projetos e analisa em 1 aba):
+
+  python main.py
+
+
+
+- Definir quantidade de projetos (-q) e número de abas do Copilot em paralelo (-a):
+
+  python main.py --quantidade 6 --agentes 3
+
+  Forma curta:
+
+  python main.py -q 6 -a 3
+
+
+
+- Modo Lote (Padrão: baixa todos os N projetos do OPEE primeiro e depois
+
+  dispara os X agentes do Copilot em paralelo):
+
+  python main.py -q 6 -a 3 --modo lote
+
+
+
+- Modo Intercalado (baixa em pequenos blocos do tamanho de --agentes, analisa
+
+  no Copilot e repete até atingir a quantidade total):
+
+  python main.py -q 6 -a 2 --modo intercalado
+
+
+
+- Recuperar pastas que deram erro anteriormente (em 02_Em_Analise ou 04_Erros)
+
+  devolvendo para 01_Baixados_OPEE antes de iniciar o fluxo:
+
+  python main.py -q 4 -a 2 --recuperar
+
+  Forma curta:
+
+  python main.py -q 4 -a 2 -r
+
+
+
+- Modo Contínuo (deixa o robô rodando em loop, checando o OPEE a cada X minutos):
+
+  python main.py -q 5 -a 3 --continuo --intervalo 20
+
+  Forma curta:
+
+  python main.py -q 5 -a 3 -c -i 20
+
+
+
+- Ver ajuda de todos os parâmetros do main.py:
+
+  python main.py --help
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+3. COMANDOS APENAS DO COPILOT (worker_copilot.py)
+
+   Usa apenas os projetos que já estão prontos na pasta 01_Baixados_OPEE.
+
+--------------------------------------------------------------------------------
+
+- Processar toda a fila atual de 01_Baixados_OPEE usando 1 agente (1 aba):
+
+  python worker_copilot.py
+
+
+
+- Processar toda a fila atual abrindo X abas do Copilot simultaneamente:
+
+  python worker_copilot.py --agentes 3
+
+  Forma curta:
+
+  python worker_copilot.py -a 3
+
+
+
+- Processar APENAS 1 único projeto da fila e encerrar (ideal para teste rápido):
+
+  python worker_copilot.py --unico
+
+  Forma curta:
+
+  python worker_copilot.py -u
+
+
+
+- Devolver pastas travadas (de 02_Em_Analise e 04_Erros) para 01_Baixados_OPEE
+
+  e já iniciar o processamento com 2 agentes:
+
+  python worker_copilot.py --recuperar --agentes 2
+
+  Forma curta:
+
+  python worker_copilot.py -r -a 2
+
+
+
+- Devolver pastas travadas e testar apenas 1 projeto:
+
+  python worker_copilot.py -r -u
+
+
+
+- Ver ajuda de todos os parâmetros do worker_copilot.py:
+
+  python worker_copilot.py --help
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+4. COMANDOS APENAS DO SCRAPER OPEE (scraper_opee.py)
+
+   Apenas baixa novos projetos do portal OPEE para a pasta 01_Baixados_OPEE,
+
+   sem acionar o Copilot.
+
+--------------------------------------------------------------------------------
+
+- Baixar a meta padrão definida no config.py (5 novos projetos):
+
+  python scraper_opee.py
+
+
+
+- Baixar uma quantidade específica de novos projetos (avança páginas sozinho):
+
+  python scraper_opee.py --quantidade 10
+
+  Forma curta:
+
+  python scraper_opee.py -q 10
+
+
+
+- Ver ajuda de todos os parâmetros do scraper_opee.py:
+
+  python scraper_opee.py --help
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+5. COMANDO DE INSPEÇÃO E DEPURAÇÃO (teste_conexao.py)
+
+--------------------------------------------------------------------------------
+
+- Abrir o Playwright Inspector conectado na aba aberta do Edge (porta 9222):
+
+  python teste_conexao.py
+
+
+
+
+
+--------------------------------------------------------------------------------
+
+DICAS DE OPERAÇÃO E PARALELISMO
+
+--------------------------------------------------------------------------------
+
+1) Quantidade recomendada de agentes (--agentes):
+
+   Utilize entre 2 e 4 agentes simultâneos (ex: -a 2 ou -a 3). Acima disso, a
+
+   licença do Microsoft 365 Copilot pode aplicar limite temporário de mensagens
+
+   simultâneas na mesma conta.
+
+
+
+2) Reprocessar um projeto já baixado no passado:
+
+   Se quiser forçar o scraper a baixar novamente um projeto antigo, remova o
+
+   código dele do arquivo "projetos_baixados.txt" e apague a pasta dele de
+
+   01_Baixados_OPEE, 02_Em_Analise ou 03_Concluidos.
+
+================================================================================
