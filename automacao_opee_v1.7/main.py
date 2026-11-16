@@ -18,7 +18,6 @@ from controle_planilha import (
 )
 from scraper_opee import executar_scraper, inteiro_positivo
 from worker_copilot import (
-    LOCK_FILA_GLOBAL,
     executar_pool_copilot_async,
     recuperar_pastas_com_erro,
 )

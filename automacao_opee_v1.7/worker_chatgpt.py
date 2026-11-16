@@ -9,7 +9,6 @@ from playwright.async_api import async_playwright, Page
 import config
 from config import (
     DIR_BAIXADOS,
-    DIR_EM_ANALISE,
     DIR_CONCLUIDOS,
     DIR_ERROS,
     ARQUIVO_SENTINELA,
