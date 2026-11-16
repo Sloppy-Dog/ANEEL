@@ -6,7 +6,6 @@ from config import (
     DIR_BAIXADOS,
     DIR_EM_ANALISE,
     DIR_CONCLUIDOS,
-    DIR_ERROS,
     QTD_ARQUIVOS_ESPERADOS,
     ARQUIVO_HISTORICO,
     ARQUIVO_SENTINELA,
@@ -443,7 +442,7 @@ def coletar_projetos_da_planilha(
             print(f" [META PLANILHA] {resumo['concluidos']}/{meta_efetiva} concluídos.")
         else:
             resumo["falhas"] += 1
-            print(f" -> Passando para o próximo projeto do mesmo lote na planilha...")
+            print(" -> Passando para o próximo projeto do mesmo lote na planilha...")
 
     if resumo["concluidos"] >= meta_efetiva:
         resumo["motivo"] = "Meta de downloads da planilha atingida."

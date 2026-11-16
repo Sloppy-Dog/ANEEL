@@ -28,9 +28,41 @@ MAX_TENTATIVAS_POR_PROJETO = 3
 # (1 .docx + 1 .json = 2 arquivos). Se salvar menos que isso, lança erro e NÃO dá falso positivo!
 QTD_MINIMA_ARQUIVOS_RETORNO = 2
 
+class LockPorLoop:
+    """Lock assíncrono reutilizável entre várias chamadas de asyncio.run().
+
+    Um asyncio.Lock() criado no nível do módulo fica preso ao primeiro event loop
+    em que houve disputa. Como o main.py chama asyncio.run() a cada ciclo
+    (modo intercalado e modo contínuo), o segundo ciclo falhava com
+    "RuntimeError: ... is bound to a different event loop". Esta classe cria
+    um asyncio.Lock separado para cada event loop, mantendo o uso com
+    'async with' inalterado.
+    """
+
+    def __init__(self):
+        self._locks = {}
+
+    def _lock_atual(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(loop)
+        if lock is None:
+            # Descarta locks de loops já encerrados para não acumular referências.
+            self._locks = {lp: lk for lp, lk in self._locks.items() if not lp.is_closed()}
+            lock = self._locks[loop] = asyncio.Lock()
+        return lock
+
+    async def __aenter__(self):
+        await self._lock_atual().acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        self._lock_atual().release()
+        return False
+
+
 # Locks globais compartilháveis entre workers (Copilot e ChatGPT)
-LOCK_FILA_GLOBAL = asyncio.Lock()
-LOCK_UI_NAVEGACAO = asyncio.Lock()
+LOCK_FILA_GLOBAL = LockPorLoop()
+LOCK_UI_NAVEGACAO = LockPorLoop()
 URL_DIRETA_AGENTE: str | None = None
 
 
