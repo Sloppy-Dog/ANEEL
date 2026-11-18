@@ -348,6 +348,7 @@ async def fechar_painel_preview_copilot(page: Page, tag: str) -> bool:
                     await btn.click(timeout=3000)
                     await page.wait_for_timeout(1200)
                     fechou = True
+                    print(f"{tag}  [DIAGNÓSTICO] Método antigo clicou em: {loc} (índice {i}).")
                     break
             if fechou:
                 break
@@ -372,12 +373,18 @@ async def fechar_painel_preview_copilot(page: Page, tag: str) -> bool:
             // Ordena pelo mais à direita (o 'X' é sempre o último ícone à direita do cabeçalho da prévia)
             candidatos.sort((a, b) => b.getBoundingClientRect().right - a.getBoundingClientRect().right);
             if (candidatos.length > 0) {
-                candidatos[0].click();
-                return true;
+                const b = candidatos[0];
+                const r = b.getBoundingClientRect();
+                const desc = `aria-label="${b.getAttribute('aria-label') || ''}" title="${b.getAttribute('title') || ''}" `
+                    + `texto="${(b.innerText || '').trim().slice(0, 40)}" classe="${(b.className || '').toString().slice(0, 80)}" `
+                    + `posição=(${Math.round(r.left)},${Math.round(r.top)})`;
+                b.click();
+                return desc;
             }
             return false;
         }""")
         if clicou_canto_direito:
+            print(f"{tag}  [DIAGNÓSTICO] Método antigo clicou (canto superior direito) em: {clicou_canto_direito}")
             fechou = True
             await page.wait_for_timeout(1200)
     except Exception:
@@ -420,21 +427,23 @@ async def fechar_previa_copilot_gravado(page: Page, tag: str, usar_metodo_antigo
     Fecha a visualização prévia pelo botão 'Fechar' da barra 'Cabeçalho' (seletor gravado).
     Se não achar, usa o método antigo (fechar_painel_preview_copilot), que funcionou no teste real.
     """
-    barra = page.get_by_role("toolbar", name=re.compile(r"Cabeçalho|Header", re.IGNORECASE))
-    botao = barra.get_by_label(re.compile(r"^(Fechar|Close)", re.IGNORECASE))
     # A prévia pode demorar alguns segundos para abrir depois que o arquivo é gerado.
+    # Procura na página e também dentro dos iframes (o visualizador do Word pode ser um iframe).
     prazo = time.monotonic() + 6
     while time.monotonic() < prazo:
-        try:
-            for i in range(await botao.count()):
-                if await botao.nth(i).is_visible():
-                    await botao.nth(i).click(timeout=5000)
-                    await page.wait_for_timeout(1200)
-                    print(f"{tag}  [OK] Visualização prévia fechada (botão 'Fechar' do 'Cabeçalho').")
-                    return True
-        except Exception as e:
-            print(f"{tag}  [AVISO] Clique em 'Fechar' do 'Cabeçalho' falhou: {e}")
-            break
+        for idx_frame, frame in enumerate(page.frames):
+            barra = frame.get_by_role("toolbar", name=re.compile(r"Cabeçalho|Header", re.IGNORECASE))
+            botao = barra.get_by_label(re.compile(r"^(Fechar|Close)", re.IGNORECASE))
+            try:
+                for i in range(await botao.count()):
+                    if await botao.nth(i).is_visible():
+                        await botao.nth(i).click(timeout=5000)
+                        await page.wait_for_timeout(1200)
+                        onde = "página" if frame == page.main_frame else f"iframe #{idx_frame}"
+                        print(f"{tag}  [OK] Visualização prévia fechada (botão 'Fechar' do 'Cabeçalho', {onde}).")
+                        return True
+            except Exception as e:
+                print(f"{tag}  [AVISO] Clique em 'Fechar' do 'Cabeçalho' falhou: {e}")
         await page.wait_for_timeout(1000)
 
     if usar_metodo_antigo:
