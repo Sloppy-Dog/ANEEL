@@ -131,6 +131,35 @@ PADRAO_LINK_JSON_GPT = re.compile(r"(baixar|download).*\bjson\b|\.json\b", re.IG
 PADRAO_LINK_DOCX_GPT = re.compile(r"(baixar|download).*\b(docx?|word)\b|\.docx?\b", re.IGNORECASE)
 
 
+async def fechar_visualizador_gpt(page: Page, tag: str) -> bool:
+    """Fecha o visualizador de arquivo do ChatGPT (gravação: botão 'Fechar visualizador')."""
+    botao = page.get_by_role("button", name=re.compile(r"^(Fechar visualizador|Close viewer)$", re.IGNORECASE))
+    fechou = False
+    try:
+        for i in range(await botao.count() - 1, -1, -1):
+            if await botao.nth(i).is_visible():
+                await botao.nth(i).click(timeout=5000)
+                await page.wait_for_timeout(1000)
+                print(f"{tag}  [OK] Visualizador de arquivo fechado.")
+                fechou = True
+                break
+    except Exception as e:
+        print(f"{tag}  [AVISO] Não consegui fechar o visualizador: {e}")
+    if fechou:
+        # A gravação clica na página ('html') para tirar o foco; Escape faz o mesmo
+        # sem o risco de o clique no meio da tela acertar um link ou botão.
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(500)
+        except Exception:
+            pass
+    return fechou
+
+
+def _tipos_salvos(salvos: list[Path]) -> set[str]:
+    return {".docx" if p.suffix.lower() in (".docx", ".doc") else p.suffix.lower() for p in salvos}
+
+
 def localizar_link_download_gpt(page: Page, ext: str):
     """Links 'Baixar o JSON final' / 'Baixar o DOCX ...' da resposta do ChatGPT."""
     padrao = PADRAO_LINK_JSON_GPT if ext == ".json" else PADRAO_LINK_DOCX_GPT
@@ -215,6 +244,9 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
 
     salvos: list[Path] = []
 
+    # Fluxo gravado: primeiro fecha o visualizador que o ChatGPT abre com o arquivo gerado.
+    await fechar_visualizador_gpt(page, tag)
+
     # 0. Links "Baixar o JSON final" / "Baixar o DOCX ..." (fluxo gravado com o codegen).
     #    Usa o ÚLTIMO link de cada tipo, que é o da resposta mais recente.
     for ext, link in ((".json", link_json), (".docx", link_docx)):
@@ -237,7 +269,9 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
         except Exception as e:
             print(f"{tag} [AVISO] Link de download {ext} não baixou ({e}). Tentando os outros métodos...")
 
-    # 1. Botões 'Baixar arquivo' novos (gerados nesta resposta)
+    # 1. Botões 'Baixar arquivo' novos (gerados nesta resposta). Fluxo gravado:
+    #    page.get_by_role("button", name="Baixar arquivo").click()  -> 1 download por botão
+    await fechar_visualizador_gpt(page, tag)
     total_botoes = await botoes_baixar.count()
     novos_indices = list(range(qtd_botoes_antes, total_botoes))
     if any(p.suffix.lower() == ".json" for p in salvos) and any(p.suffix.lower() in (".docx", ".doc") for p in salvos):
@@ -250,14 +284,29 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
             await botao.scroll_into_view_if_needed(timeout=2000)
         except Exception:
             pass
+        if {".docx", ".json"} <= _tipos_salvos(salvos):
+            break  # já tem os dois arquivos
         try:
-            # O botão real costuma ficar sob o botão invisível "Abrir prévia": clique via JS,
-            # mas DENTRO do expect_download para não perder o evento de download.
-            async with page.expect_download(timeout=60000) as dl_info:
-                await botao.evaluate("el => el.click()")
-            caminho = await _salvar_download_gpt(await dl_info.value, pasta_projeto,
+            download = None
+            # a) Clique normal, como na gravação (com o visualizador já fechado).
+            try:
+                async with page.expect_download(timeout=20000) as dl_info:
+                    await botao.click(timeout=5000)
+                download = await dl_info.value
+            except Exception as e_clique:
+                print(f"{tag}  [AVISO] Clique normal no botão #{idx} não baixou ({e_clique}). Tentando via JS...")
+                # b) Reserva: o clique pode ter aberto o visualizador ('Abrir prévia' sobre o botão).
+                await fechar_visualizador_gpt(page, tag)
+                async with page.expect_download(timeout=60000) as dl_info:
+                    await botao.evaluate("el => el.click()")
+                download = await dl_info.value
+            tipos_antes = _tipos_salvos(salvos)
+            caminho = await _salvar_download_gpt(download, pasta_projeto,
                                                  f"resultado_gpt_{pos}.dat", nomes_anexos)
-            if caminho:
+            if caminho and _tipos_salvos([caminho]) & tipos_antes:
+                print(f"{tag}  [IGNORADO] '{caminho.name}' repete um tipo já salvo; descartado.")
+                caminho.unlink(missing_ok=True)
+            elif caminho:
                 salvos.append(caminho)
                 print(f"{tag}  [OK] Salvo: {caminho.name}")
             else:
