@@ -15,7 +15,7 @@
 
 - **Download pelo fluxo gravado no Playwright (codegen).** Passa a ser o primeiro método tentado; os métodos antigos ficam como reserva para o que faltar.
   - **Copilot:** fecha a visualização prévia (barra "Cabeçalho" → "Fechar"), abre "Mais ações" no card do documento e clica em "Baixar" para salvar o `.docx`, depois clica no link "Baixar o JSON final".
-  - **ChatGPT:** fecha o visualizador de arquivo ("Fechar visualizador"), clica no link "Baixar o JSON final" quando existir e, para o que faltar, clica em cada botão "Baixar arquivo" da resposta (clique normal; se não baixar, fecha o visualizador e tenta via JavaScript). Para quando já tiver o `.docx` e o `.json`; um segundo arquivo do mesmo tipo é descartado.
+  - **ChatGPT:** fecha o visualizador de arquivo ("Fechar visualizador") e clica em cada botão "Baixar arquivo" da resposta **via JavaScript** — um botão transparente "Abrir prévia de <arquivo>" fica por cima e intercepta o clique normal (que fica como reserva). Para o que faltar, tenta o link "Baixar o JSON final" (espera de 15 s) e os links com nome de arquivo. Para quando já tiver o `.docx` e o `.json`; um segundo arquivo do mesmo tipo é descartado.
   - O texto do link é escrito pela IA; o bot aceita variações como "Baixar JSON" ou "Download do JSON final".
   - Um arquivo baixado com o mesmo nome de um anexo do projeto recebe o sufixo `_IA` e nunca sobrescreve o original.
 - **Novas opções em `config.py`:**
