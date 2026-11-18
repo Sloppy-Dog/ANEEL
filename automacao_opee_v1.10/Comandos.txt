@@ -134,6 +134,24 @@
 
 
 
+- Modo OFFLINE (opção [3] do menu): NÃO acessa o OPEE e avalia apenas os
+
+  projetos que já estão em 01_Baixados_OPEE (Copilot e/ou ChatGPT):
+
+  python main.py --offline -a 2 -g 1
+
+  Forma curta:
+
+  python main.py -o -a 2 -g 1
+
+
+
+- Modo OFFLINE recuperando antes as pastas de 02_Em_Analise e 04_Erros:
+
+  python main.py -o -a 2 -r
+
+
+
 - Ver ajuda de todos os parâmetros do main.py:
 
   python main.py --help

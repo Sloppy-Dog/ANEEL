@@ -2,6 +2,13 @@
 
 ## Novidades da v1.10
 
+- **Nova opção [3] — Avaliação OFFLINE.** Avalia apenas os projetos que já estão em `01_Baixados_OPEE`, **sem acessar o OPEE** (nenhum download, nenhuma busca, nenhuma consulta à planilha).
+  - No menu inicial do `main.py`, escolha `3`. Ou inicie direto com `--offline` (forma curta `-o`), por exemplo: `python main.py -o -a 2 -g 1`.
+  - O navegador na porta 9222 continua necessário para o Copilot/ChatGPT; só a aba do OPEE deixa de ser usada.
+  - Toda a fila de `01_Baixados_OPEE` é avaliada; `--quantidade (-q)` e `--modo` não se aplicam.
+  - Pastas sem o marcador `_PRONTO.flag` (copiadas manualmente ou de um download interrompido) são listadas, e o bot pergunta se devem entrar na avaliação. Pastas vazias são ignoradas.
+  - Funciona com `-r` (devolve `02_Em_Analise`/`04_Erros` para a fila antes de começar) e com `-c -i` (verifica a pasta novamente a cada intervalo).
+  - Não pode ser combinada com `--planilha` ou `-p`.
 - `ONEDRIVE_BASE_DIR` em `config.py` aponta para a pasta `automacao_opee_v1.10`. Para continuar com o histórico e as filas da v1.9.1, copie para a nova pasta `projetos_baixados.txt` e as pastas `01_Baixados_OPEE` a `04_Erros`, ou volte o caminho para a pasta antiga.
 
 ---

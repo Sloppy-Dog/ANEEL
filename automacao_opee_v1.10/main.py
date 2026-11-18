@@ -213,6 +213,73 @@ def rodar_modo_intercalado(
     }
 
 
+def listar_pastas_sem_sentinela() -> list[Path]:
+    """Pastas de 01_Baixados_OPEE com arquivos, mas sem o marcador de pronto (_PRONTO.flag)."""
+    if not DIR_BAIXADOS.exists():
+        return []
+    return sorted(
+        pasta for pasta in DIR_BAIXADOS.iterdir()
+        if pasta.is_dir()
+        and not (pasta / ARQUIVO_SENTINELA).is_file()
+        and any(item.is_file() for item in pasta.iterdir())
+    )
+
+
+def preparar_fila_offline(incluir_sem_marcador: bool | None) -> bool | None:
+    """
+    Verifica a fila de 01_Baixados_OPEE para o modo offline.
+
+    Pastas copiadas manualmente para 01_Baixados_OPEE não têm o arquivo _PRONTO.flag
+    (criado pelo scraper ao fim do download) e seriam ignoradas pelos agentes.
+    Na primeira chamada (incluir_sem_marcador=None) pergunta se devem entrar na fila;
+    a resposta é devolvida para ser reaproveitada nas varreduras do modo --continuo.
+    """
+    sem_marcador = listar_pastas_sem_sentinela()
+    if sem_marcador:
+        if incluir_sem_marcador is None:
+            print(f"\n[OFFLINE] {len(sem_marcador)} pasta(s) em '{DIR_BAIXADOS.name}' sem o marcador {ARQUIVO_SENTINELA}:")
+            for pasta in sem_marcador:
+                print(f"   - {pasta.name}")
+            print(" Elas podem ter sido copiadas manualmente ou ser um download interrompido do OPEE.")
+            resposta = input(" Incluir essas pastas na avaliação? [s/N]: ").strip().lower()
+            incluir_sem_marcador = resposta in ("s", "sim", "y", "yes")
+        if incluir_sem_marcador:
+            for pasta in sem_marcador:
+                (pasta / ARQUIVO_SENTINELA).touch()
+                print(f"[OFFLINE] {pasta.name} marcada como pronta para avaliação.")
+        else:
+            print(f"[OFFLINE] {len(sem_marcador)} pasta(s) sem marcador ficarão de fora desta avaliação.")
+    return incluir_sem_marcador
+
+
+def rodar_modo_offline(agentes_copilot: int, agentes_gpt: int) -> dict:
+    """Avalia apenas os projetos já presentes em 01_Baixados_OPEE, sem acessar o OPEE."""
+    total_agentes = agentes_copilot + agentes_gpt
+    pendentes = contar_pendentes_na_fila()
+
+    print("\n" + "=" * 75)
+    print(
+        f" MODO OFFLINE — AVALIAÇÃO DE {pendentes} PROJETO(S) DE '{DIR_BAIXADOS.name}' + POOL DE "
+        f"{total_agentes} AGENTE(S) ({agentes_copilot} COPILOT + {agentes_gpt} CHATGPT)"
+    )
+    print("=" * 75)
+
+    if pendentes == 0:
+        print(f"[OFFLINE] Nenhum projeto pronto em: {DIR_BAIXADOS}")
+        res = {"sucessos_copilot": 0, "falhas_copilot": 0, "sucessos_gpt": 0, "falhas_gpt": 0}
+    else:
+        res = executar_pools_combinados(agentes_copilot, agentes_gpt)
+
+    return {
+        "baixados": 0,
+        "analisados_copilot": res["sucessos_copilot"],
+        "falhas_copilot": res["falhas_copilot"],
+        "analisados_gpt": res["sucessos_gpt"],
+        "falhas_gpt": res["falhas_gpt"],
+        "pintados_roxo": 0,
+    }
+
+
 def rodar_modo_lote(
     quantidade: int,
     agentes_copilot: int,
@@ -269,7 +336,10 @@ def rodar_modo_lote(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Orquestrador completo: coleta no OPEE (Planilha ou Busca/Automático) + Copilot e ChatGPT."
+        description=(
+            "Orquestrador completo: coleta no OPEE (Planilha ou Busca/Automático) + Copilot e ChatGPT, "
+            "ou avaliação OFFLINE dos projetos já presentes em 01_Baixados_OPEE."
+        )
     )
     parser.add_argument(
         "--quantidade", "-q",
@@ -301,6 +371,11 @@ def main():
         help="Inicia diretamente no modo de extração via planilha.",
     )
     parser.add_argument(
+        "--offline", "-o",
+        action="store_true",
+        help="Não acessa o OPEE: avalia apenas os projetos já presentes em 01_Baixados_OPEE.",
+    )
+    parser.add_argument(
         "--modo", "-m",
         choices=["intercalado", "lote"],
         default="lote",
@@ -326,25 +401,31 @@ def main():
 
     if (args.agentes + args.gpt) <= 0:
         parser.error("Informe pelo menos 1 agente ativo somando --agentes (-a) e --gpt (-g).")
+    if args.offline and (args.planilha or args.projeto is not None):
+        parser.error("--offline não pode ser combinado com --planilha ou --projeto (-p).")
 
     inicializar_pastas()
 
     if args.recuperar:
         recuperar_pastas_com_erro()
 
-    # Menu inicial: Opção 1 (Planilha) vs Opção 2 (Pesquisa / Automático)
+    # Menu inicial: Opção 1 (Planilha) vs Opção 2 (Pesquisa / Automático) vs Opção 3 (Offline)
     usar_planilha = args.planilha
-    if not usar_planilha and args.projeto is None:
+    modo_offline = args.offline
+    if not usar_planilha and not modo_offline and args.projeto is None:
         print("\n" + "=" * 75)
         print(" MODO DE EXTRAÇÃO DO PIPELINE")
         print("=" * 75)
         print(" [1] Extração COM Planilha ('Projeto Piloto Lotes')")
         print(" [2] Extração SEM Planilha (Opção Pesquisa / Automático)")
-        escolha_modo = input("\nEscolha uma opção [1/2] (Padrão=2): ").strip()
+        print(f" [3] Avaliação OFFLINE (sem OPEE: usa só os projetos já em '{DIR_BAIXADOS.name}')")
+        escolha_modo = input("\nEscolha uma opção [1/2/3] (Padrão=2): ").strip()
         usar_planilha = (escolha_modo == "1")
+        modo_offline = (escolha_modo == "3")
 
     termo_busca = args.projeto
-    if not usar_planilha and termo_busca is None:
+    incluir_sem_marcador = None
+    if not usar_planilha and not modo_offline and termo_busca is None:
         resposta = input(
             "\n[OPÇÃO DE BUSCA] Digite o nome/código do projeto para pesquisar (ex: PE-00404) "
             "ou pressione ENTER para baixar no modo automático: "
@@ -365,7 +446,10 @@ def main():
 
         inicio = time.monotonic()
 
-        if args.modo == "intercalado":
+        if modo_offline:
+            incluir_sem_marcador = preparar_fila_offline(incluir_sem_marcador)
+            resumo = rodar_modo_offline(args.agentes, args.gpt)
+        elif args.modo == "intercalado":
             resumo = rodar_modo_intercalado(
                 args.quantidade,
                 args.agentes,
@@ -388,7 +472,9 @@ def main():
         total_analisados = resumo["analisados_copilot"] + resumo["analisados_gpt"]
         total_falhas = resumo["falhas_copilot"] + resumo["falhas_gpt"]
 
-        if usar_planilha:
+        if modo_offline:
+            desc_modo = "Offline (somente fila local)"
+        elif usar_planilha:
             desc_modo = f"Planilha (Lote {prefixo_planilha})"
         elif termo_busca:
             desc_modo = f"Busca ({termo_busca})"
@@ -425,7 +511,10 @@ def main():
         if not args.continuo:
             break
 
-        print(f"\n[MODO CONTÍNUO] Aguardando {args.intervalo} minuto(s) para a próxima varredura (Ctrl+C para parar)...")
+        if modo_offline:
+            print(f"\n[MODO CONTÍNUO | OFFLINE] Aguardando {args.intervalo} minuto(s) para verificar novamente '{DIR_BAIXADOS.name}' (Ctrl+C para parar)...")
+        else:
+            print(f"\n[MODO CONTÍNUO] Aguardando {args.intervalo} minuto(s) para a próxima varredura (Ctrl+C para parar)...")
         time.sleep(args.intervalo * 60)
 
 
