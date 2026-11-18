@@ -247,35 +247,12 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
     # Fluxo gravado: primeiro fecha o visualizador que o ChatGPT abre com o arquivo gerado.
     await fechar_visualizador_gpt(page, tag)
 
-    # 0. Links "Baixar o JSON final" / "Baixar o DOCX ..." (fluxo gravado com o codegen).
-    #    Usa o ÚLTIMO link de cada tipo, que é o da resposta mais recente.
-    for ext, link in ((".json", link_json), (".docx", link_docx)):
-        if await link.count() == 0:
-            continue
-        alvo = link.last
-        try:
-            nome_link = (await alvo.inner_text(timeout=3000)).strip() or ext
-            await alvo.scroll_into_view_if_needed(timeout=2000)
-            async with page.expect_download(timeout=60000) as dl_info:
-                await alvo.click()
-            caminho = await _salvar_download_gpt(await dl_info.value, pasta_projeto,
-                                                 f"resultado_gpt{ext}", nomes_anexos)
-            if caminho and caminho.suffix.lower() in ((".docx", ".doc") if ext == ".docx" else (ext,)):
-                salvos.append(caminho)
-                print(f"{tag}  [OK] Salvo: {caminho.name} (link '{nome_link}')")
-            elif caminho:
-                salvos.append(caminho)
-                print(f"{tag}  [AVISO] Link '{nome_link}' baixou '{caminho.name}' (extensão inesperada).")
-        except Exception as e:
-            print(f"{tag} [AVISO] Link de download {ext} não baixou ({e}). Tentando os outros métodos...")
-
     # 1. Botões 'Baixar arquivo' novos (gerados nesta resposta). Fluxo gravado:
     #    page.get_by_role("button", name="Baixar arquivo").click()  -> 1 download por botão
-    await fechar_visualizador_gpt(page, tag)
     total_botoes = await botoes_baixar.count()
     novos_indices = list(range(qtd_botoes_antes, total_botoes))
     if any(p.suffix.lower() == ".json" for p in salvos) and any(p.suffix.lower() in (".docx", ".doc") for p in salvos):
-        novos_indices = []  # o .docx e o .json já vieram pelos links
+        novos_indices = []
     if novos_indices:
         print(f"{tag}  -> {len(novos_indices)} botão(ões) 'Baixar arquivo' detectado(s)! Baixando...")
     for pos, idx in enumerate(novos_indices, start=1):
@@ -288,17 +265,20 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
             break  # já tem os dois arquivos
         try:
             download = None
-            # a) Clique normal, como na gravação (com o visualizador já fechado).
+            # a) Clique via JavaScript: o botão transparente "Abrir prévia de <arquivo>" fica por
+            #    cima do "Baixar arquivo" e intercepta o clique normal (confirmado no teste real).
             try:
+                async with page.expect_download(timeout=45000) as dl_info:
+                    await botao.evaluate("el => el.click()")
+                download = await dl_info.value
+            except Exception as e_js:
+                primeira_linha = str(e_js).splitlines()[0] if str(e_js) else type(e_js).__name__
+                print(f"{tag}  [AVISO] Clique via JS no botão #{idx} não baixou ({primeira_linha}). "
+                      "Tentando clique normal...")
+                # b) Reserva: clique normal, como na gravação, com o visualizador fechado.
+                await fechar_visualizador_gpt(page, tag)
                 async with page.expect_download(timeout=20000) as dl_info:
                     await botao.click(timeout=5000)
-                download = await dl_info.value
-            except Exception as e_clique:
-                print(f"{tag}  [AVISO] Clique normal no botão #{idx} não baixou ({e_clique}). Tentando via JS...")
-                # b) Reserva: o clique pode ter aberto o visualizador ('Abrir prévia' sobre o botão).
-                await fechar_visualizador_gpt(page, tag)
-                async with page.expect_download(timeout=60000) as dl_info:
-                    await botao.evaluate("el => el.click()")
                 download = await dl_info.value
             tipos_antes = _tipos_salvos(salvos)
             caminho = await _salvar_download_gpt(download, pasta_projeto,
@@ -314,7 +294,32 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
         except Exception as e:
             print(f"{tag} [ERRO] Falha ao baixar no botão #{idx}: {e}")
 
-    # 2. Links diretos, para o que ainda faltar (.docx ou .json)
+    # 2. Links "Baixar o JSON final" / "Baixar o DOCX ..." (gravação codegen), só para o que faltar.
+    #    Usa o ÚLTIMO link de cada tipo, que é o da resposta mais recente.
+    for ext, link in ((".json", link_json), (".docx", link_docx)):
+        if await link.count() == 0 or ext in _tipos_salvos(salvos):
+            continue
+        alvo = link.last
+        nome_link = ext
+        try:
+            nome_link = (await alvo.inner_text(timeout=3000)).strip() or ext
+            await alvo.scroll_into_view_if_needed(timeout=2000)
+            async with page.expect_download(timeout=15000) as dl_info:
+                await alvo.click(timeout=5000)
+            caminho = await _salvar_download_gpt(await dl_info.value, pasta_projeto,
+                                                 f"resultado_gpt{ext}", nomes_anexos)
+            if caminho and caminho.suffix.lower() in ((".docx", ".doc") if ext == ".docx" else (ext,)):
+                salvos.append(caminho)
+                print(f"{tag}  [OK] Salvo: {caminho.name} (link '{nome_link}')")
+            elif caminho:
+                salvos.append(caminho)
+                print(f"{tag}  [AVISO] Link '{nome_link}' baixou '{caminho.name}' (extensão inesperada).")
+        except Exception as e:
+            primeira_linha = str(e).splitlines()[0] if str(e) else type(e).__name__
+            print(f"{tag} [AVISO] Link '{nome_link}' ({ext}) não baixou ({primeira_linha}). Tentando os outros métodos...")
+            await fechar_visualizador_gpt(page, tag)  # o clique pode ter aberto a prévia
+
+    # 3. Links diretos com nome de arquivo, para o que ainda faltar (.docx ou .json)
     def falta(ext: str) -> bool:
         aceitos = (".docx", ".doc") if ext == ".docx" else (ext,)
         return not any(p.suffix.lower() in aceitos for p in salvos)
