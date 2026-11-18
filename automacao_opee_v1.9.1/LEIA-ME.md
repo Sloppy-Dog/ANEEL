@@ -13,6 +13,11 @@
 
   Com mais de um agente em paralelo (`-a 2`, `-g 1` etc.), os agentes que já estavam avaliando outro projeto terminam esse projeto, mas não pegam mais nenhum.
 
+- **Download pelo fluxo gravado no Playwright (codegen).** Passa a ser o primeiro método tentado; os métodos antigos ficam como reserva para o que faltar.
+  - **Copilot:** fecha a visualização prévia (barra "Cabeçalho" → "Fechar"), abre "Mais ações" no card do documento e clica em "Baixar" para salvar o `.docx`, depois clica no link "Baixar o JSON final".
+  - **ChatGPT:** clica no link "Baixar o JSON final" (e num link equivalente para o DOCX, se existir).
+  - O texto do link é escrito pela IA; o bot aceita variações como "Baixar JSON" ou "Download do JSON final".
+  - Um arquivo baixado com o mesmo nome de um anexo do projeto recebe o sufixo `_IA` e nunca sobrescreve o original.
 - **Novas opções em `config.py`:**
   - `PARAR_NO_PRIMEIRO_ERRO = True` — coloque `False` para voltar ao comportamento antigo (seguir para o próximo projeto).
   - `MAX_TENTATIVAS_POR_PROJETO = 1` — antes eram 3 tentativas fixas, e cada uma abria uma aba nova.

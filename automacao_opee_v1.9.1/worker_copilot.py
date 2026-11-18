@@ -386,6 +386,123 @@ async def fechar_painel_preview_copilot(page: Page, tag: str) -> bool:
     return fechou
 
 
+# ==============================================================================
+# FLUXO GRAVADO NO PLAYWRIGHT CODEGEN (v1.9.1)
+#   page.get_by_role("toolbar", name="Cabeçalho").get_by_label("Fechar").click()
+#   page.get_by_role("button", name="Mais ações").click()
+#   with page.expect_download():  page.locator(".fui-MenuItem__icon > .fui-Icon").first.click()   -> .docx
+#   with page.expect_download():  page.get_by_role("link", name="Baixar o JSON final").click()    -> .json
+# ==============================================================================
+
+# O texto do link é escrito pela IA e pode variar ("Baixar JSON", "Download do JSON final"...).
+PADRAO_LINK_JSON_COPILOT = re.compile(r"(baixar|download).*\bjson\b", re.IGNORECASE)
+
+
+def _nome_seguro(nome: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", nome or "").rstrip(" .")
+
+
+async def _salvar_download_copilot(download, pasta: Path, nome_padrao: str) -> Path | None:
+    """Salva o download sem nunca sobrescrever um anexo original do projeto (usa sufixo _IA)."""
+    nome = _nome_seguro(download.suggested_filename) or nome_padrao
+    caminho = pasta / nome
+    if caminho.exists():
+        caminho = pasta / f"{Path(nome).stem}_IA{Path(nome).suffix}"
+    await download.save_as(str(caminho))
+    if not caminho.is_file() or caminho.stat().st_size == 0:
+        caminho.unlink(missing_ok=True)
+        return None
+    return caminho
+
+
+async def fechar_previa_copilot_gravado(page: Page, tag: str) -> bool:
+    """Fecha a visualização prévia pelo botão 'Fechar' da barra 'Cabeçalho' (seletor gravado)."""
+    barra = page.get_by_role("toolbar", name=re.compile(r"^(Cabeçalho|Header)$", re.IGNORECASE))
+    botao = barra.get_by_label(re.compile(r"^(Fechar|Close)$", re.IGNORECASE))
+    try:
+        if await botao.count() > 0 and await botao.first.is_visible():
+            await botao.first.click(timeout=5000)
+            await page.wait_for_timeout(1200)
+            print(f"{tag}  [OK] Visualização prévia fechada.")
+            return True
+    except Exception as e:
+        print(f"{tag}  [AVISO] Não consegui fechar a visualização prévia pelo 'Cabeçalho': {e}")
+    return False
+
+
+async def baixar_docx_mais_acoes_gravado(page: Page, pasta_projeto: Path, tag: str) -> Path | None:
+    """'Mais ações' do card do .docx -> primeiro item do menu (ícone 'Baixar'), como na gravação."""
+    botoes = page.get_by_role("button", name=re.compile(r"^(Mais ações|More actions)$", re.IGNORECASE))
+    visiveis = []
+    for i in range(await botoes.count()):
+        btn = botoes.nth(i)
+        try:
+            if await btn.is_visible():
+                visiveis.append(btn)
+        except Exception:
+            pass
+    if not visiveis:
+        print(f"{tag}  [AVISO] Botão 'Mais ações' do card do .docx não encontrado.")
+        return None
+
+    # O card do .docx fica na resposta, abaixo de eventuais '...' do topo: testa do último para o primeiro.
+    for btn in reversed(visiveis):
+        try:
+            await btn.scroll_into_view_if_needed(timeout=2000)
+            await btn.click(timeout=4000)
+            await page.wait_for_timeout(800)
+
+            item = page.get_by_role("menuitem", name=re.compile(r"^\s*(Baixar|Download)\b", re.IGNORECASE)).first
+            if not (await item.count() > 0 and await item.is_visible()):
+                item = page.locator(".fui-MenuItem__icon > .fui-Icon").first  # seletor gravado
+            if not (await item.count() > 0 and await item.is_visible()):
+                await page.keyboard.press("Escape")
+                continue
+
+            async with page.expect_download(timeout=30000) as dl_info:
+                await item.click(timeout=4000)
+            caminho = await _salvar_download_copilot(await dl_info.value, pasta_projeto, "avaliacao_copilot.docx")
+            if caminho and caminho.suffix.lower() in (".docx", ".doc"):
+                print(f"{tag}  [OK] Salvo (.docx via 'Mais ações'): {caminho.name}")
+                return caminho
+            if caminho:
+                print(f"{tag}  [AVISO] 'Mais ações' baixou '{caminho.name}', que não é .docx. Descartado.")
+                caminho.unlink(missing_ok=True)
+        except Exception as e:
+            print(f"{tag}  [AVISO] 'Mais ações' -> 'Baixar' falhou: {e}")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+    return None
+
+
+async def baixar_json_link_gravado(page: Page, pasta_projeto: Path, tag: str) -> Path | None:
+    """Clica no link 'Baixar o JSON final' (último da resposta), como na gravação."""
+    link = page.get_by_role("link", name=PADRAO_LINK_JSON_COPILOT)
+    if await link.count() == 0:
+        print(f"{tag}  [AVISO] Link 'Baixar o JSON final' não encontrado na resposta.")
+        return None
+    alvo = link.last
+    try:
+        nome_link = (await alvo.inner_text(timeout=3000)).strip()
+        await alvo.scroll_into_view_if_needed(timeout=2000)
+        async with page.expect_download(timeout=60000) as dl_info:
+            await alvo.click(timeout=5000)
+        caminho = await _salvar_download_copilot(await dl_info.value, pasta_projeto, "avaliacao_copilot.json")
+        if caminho and caminho.suffix.lower() != ".json":
+            novo = caminho.with_suffix(".json")
+            if not novo.exists():
+                caminho.rename(novo)
+                caminho = novo
+        if caminho:
+            print(f"{tag}  [OK] Salvo (.json via link '{nome_link}'): {caminho.name}")
+        return caminho
+    except Exception as e:
+        print(f"{tag}  [AVISO] Link do JSON não baixou: {e}")
+        return None
+
+
 async def baixar_docx_via_card_copilot(page: Page, pasta_projeto: Path, pos: int, tag: str) -> bool:
     """
     Baixa o arquivo .docx que o Copilot renderiza como Card (e NÃO como link <a>):
@@ -630,13 +747,15 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
         has_text=re.compile(r"\.docx\b", re.IGNORECASE)
     )
 
+    link_json_final = page.get_by_role("link", name=PADRAO_LINK_JSON_COPILOT)
+
     prazo = time.monotonic() + (TIMEOUT_RESPOSTA_IA_MS / 1000.0)
     resposta_iniciada = False
 
     while time.monotonic() < prazo:
         total_links = await links_arquivos.count()
         tem_docx = await elementos_docx.count() > 0
-        if total_links > qtd_links_antes or tem_docx:
+        if total_links > qtd_links_antes or tem_docx or await link_json_final.count() > 0:
             resposta_iniciada = True
             break
         await page.wait_for_timeout(1500)
@@ -656,6 +775,11 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
 
     await page.wait_for_timeout(3500)
 
+    # O card do .docx costuma aparecer antes do link do JSON: espera mais um pouco por ele.
+    prazo_json = min(prazo, time.monotonic() + 60)
+    while await link_json_final.count() == 0 and time.monotonic() < prazo_json:
+        await page.wait_for_timeout(2000)
+
     async with LOCK_UI_NAVEGACAO:
         try:
             await page.bring_to_front()
@@ -665,9 +789,27 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
         arquivos_salvos = []
 
         # ----------------------------------------------------------------------
-        # PARTE A: Download do .docx (MANTIDO EXATAMENTE COMO ESTAVA!)
+        # PARTE 0: Fluxo gravado (fecha a prévia -> 'Mais ações' -> .docx -> link do JSON)
         # ----------------------------------------------------------------------
-        tem_card_docx = await elementos_docx.count() > 0
+        print(f"{tag}  -> Baixando pelo fluxo gravado (fechar prévia, .docx, .json)...")
+        await fechar_previa_copilot_gravado(page, tag)
+        docx_gravado = await baixar_docx_mais_acoes_gravado(page, pasta_projeto, tag)
+        if docx_gravado:
+            arquivos_salvos.append(docx_gravado.name)
+        await fechar_previa_copilot_gravado(page, tag)  # caso o clique tenha reaberto a prévia
+        json_gravado = await baixar_json_link_gravado(page, pasta_projeto, tag)
+        if json_gravado:
+            arquivos_salvos.append(json_gravado.name)
+
+        if docx_gravado and json_gravado:
+            print(f"{tag}  [OK] .docx e .json salvos pelo fluxo gravado.")
+            return
+        print(f"{tag}  -> Fluxo gravado incompleto; tentando os métodos anteriores para o que falta...")
+
+        # ----------------------------------------------------------------------
+        # PARTE A: Download do .docx (método anterior, só se ainda faltar)
+        # ----------------------------------------------------------------------
+        tem_card_docx = await elementos_docx.count() > 0 and not docx_gravado
         tem_link_docx = False
         total_links = await links_arquivos.count()
         for idx in range(qtd_links_antes, total_links):
@@ -705,6 +847,8 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
                 continue
 
             nome_link = (await link.inner_text()).strip()
+            if (docx_gravado and ".doc" in nome_link.lower()) or (json_gravado and ".json" in nome_link.lower()):
+                continue
 
             try:
                 await link.evaluate("(el, nome) => el.setAttribute('download', nome)", nome_link)
