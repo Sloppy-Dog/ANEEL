@@ -123,6 +123,19 @@ def localizar_botoes_baixar_gpt(page: Page):
 
 SEGUNDOS_ESTABILIDADE_RESPOSTA_GPT = 10
 
+# Links de download escritos pelo próprio GPT na resposta.
+# Gravação (Playwright codegen):  page.get_by_role("link", name="Baixar o JSON final")
+# O texto é gerado pela IA e pode variar ("Baixar JSON", "Download do JSON final"...),
+# por isso o padrão aceita qualquer link que cite JSON (ou DOCX/Word).
+PADRAO_LINK_JSON_GPT = re.compile(r"(baixar|download).*\bjson\b|\.json\b", re.IGNORECASE)
+PADRAO_LINK_DOCX_GPT = re.compile(r"(baixar|download).*\b(docx?|word)\b|\.docx?\b", re.IGNORECASE)
+
+
+def localizar_link_download_gpt(page: Page, ext: str):
+    """Links 'Baixar o JSON final' / 'Baixar o DOCX ...' da resposta do ChatGPT."""
+    padrao = PADRAO_LINK_JSON_GPT if ext == ".json" else PADRAO_LINK_DOCX_GPT
+    return page.get_by_role("link", name=padrao)
+
 
 def _nome_seguro_gpt(nome: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", nome or "").rstrip(" .")
@@ -158,6 +171,8 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
     links_arquivos = page.get_by_role("link").filter(
         has_text=re.compile(r"\.(json|docx|doc)\b", re.IGNORECASE)
     )
+    link_json = localizar_link_download_gpt(page, ".json")
+    link_docx = localizar_link_download_gpt(page, ".docx")
     botao_parar = page.locator(
         'button[data-testid="stop-button"], button[aria-label*="Parar"], button[aria-label*="Stop"]'
     )
@@ -180,7 +195,12 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
             ultimo_texto = texto
             estavel_desde = time.monotonic()
 
-        tem_arquivo = (await botoes_baixar.count() > qtd_botoes_antes) or (await links_arquivos.count() > 0)
+        tem_arquivo = (
+            (await botoes_baixar.count() > qtd_botoes_antes)
+            or (await links_arquivos.count() > 0)
+            or (await link_json.count() > 0)
+            or (await link_docx.count() > 0)
+        )
         gerando = await botao_parar.count() > 0 and await botao_parar.first.is_visible()
         if tem_arquivo and not gerando and time.monotonic() - estavel_desde >= SEGUNDOS_ESTABILIDADE_RESPOSTA_GPT:
             print(f"{tag}  -> Resposta concluída em {(time.monotonic() - inicio) / 60:.1f} min.")
@@ -195,9 +215,33 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
 
     salvos: list[Path] = []
 
+    # 0. Links "Baixar o JSON final" / "Baixar o DOCX ..." (fluxo gravado com o codegen).
+    #    Usa o ÚLTIMO link de cada tipo, que é o da resposta mais recente.
+    for ext, link in ((".json", link_json), (".docx", link_docx)):
+        if await link.count() == 0:
+            continue
+        alvo = link.last
+        try:
+            nome_link = (await alvo.inner_text(timeout=3000)).strip() or ext
+            await alvo.scroll_into_view_if_needed(timeout=2000)
+            async with page.expect_download(timeout=60000) as dl_info:
+                await alvo.click()
+            caminho = await _salvar_download_gpt(await dl_info.value, pasta_projeto,
+                                                 f"resultado_gpt{ext}", nomes_anexos)
+            if caminho and caminho.suffix.lower() in ((".docx", ".doc") if ext == ".docx" else (ext,)):
+                salvos.append(caminho)
+                print(f"{tag}  [OK] Salvo: {caminho.name} (link '{nome_link}')")
+            elif caminho:
+                salvos.append(caminho)
+                print(f"{tag}  [AVISO] Link '{nome_link}' baixou '{caminho.name}' (extensão inesperada).")
+        except Exception as e:
+            print(f"{tag} [AVISO] Link de download {ext} não baixou ({e}). Tentando os outros métodos...")
+
     # 1. Botões 'Baixar arquivo' novos (gerados nesta resposta)
     total_botoes = await botoes_baixar.count()
     novos_indices = list(range(qtd_botoes_antes, total_botoes))
+    if any(p.suffix.lower() == ".json" for p in salvos) and any(p.suffix.lower() in (".docx", ".doc") for p in salvos):
+        novos_indices = []  # o .docx e o .json já vieram pelos links
     if novos_indices:
         print(f"{tag}  -> {len(novos_indices)} botão(ões) 'Baixar arquivo' detectado(s)! Baixando...")
     for pos, idx in enumerate(novos_indices, start=1):
@@ -223,7 +267,8 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
 
     # 2. Links diretos, para o que ainda faltar (.docx ou .json)
     def falta(ext: str) -> bool:
-        return not any(p.suffix.lower() == ext for p in salvos)
+        aceitos = (".docx", ".doc") if ext == ".docx" else (ext,)
+        return not any(p.suffix.lower() in aceitos for p in salvos)
 
     if falta(".docx") or falta(".json"):
         for idx in range(await links_arquivos.count()):
