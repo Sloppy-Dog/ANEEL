@@ -415,32 +415,73 @@ async def _salvar_download_copilot(download, pasta: Path, nome_padrao: str) -> P
     return caminho
 
 
-async def fechar_previa_copilot_gravado(page: Page, tag: str) -> bool:
-    """Fecha a visualização prévia pelo botão 'Fechar' da barra 'Cabeçalho' (seletor gravado)."""
-    barra = page.get_by_role("toolbar", name=re.compile(r"^(Cabeçalho|Header)$", re.IGNORECASE))
-    botao = barra.get_by_label(re.compile(r"^(Fechar|Close)$", re.IGNORECASE))
-    try:
-        if await botao.count() > 0 and await botao.first.is_visible():
-            await botao.first.click(timeout=5000)
-            await page.wait_for_timeout(1200)
-            print(f"{tag}  [OK] Visualização prévia fechada.")
+async def fechar_previa_copilot_gravado(page: Page, tag: str, usar_metodo_antigo: bool = True) -> bool:
+    """
+    Fecha a visualização prévia pelo botão 'Fechar' da barra 'Cabeçalho' (seletor gravado).
+    Se não achar, usa o método antigo (fechar_painel_preview_copilot), que funcionou no teste real.
+    """
+    barra = page.get_by_role("toolbar", name=re.compile(r"Cabeçalho|Header", re.IGNORECASE))
+    botao = barra.get_by_label(re.compile(r"^(Fechar|Close)", re.IGNORECASE))
+    # A prévia pode demorar alguns segundos para abrir depois que o arquivo é gerado.
+    prazo = time.monotonic() + 6
+    while time.monotonic() < prazo:
+        try:
+            for i in range(await botao.count()):
+                if await botao.nth(i).is_visible():
+                    await botao.nth(i).click(timeout=5000)
+                    await page.wait_for_timeout(1200)
+                    print(f"{tag}  [OK] Visualização prévia fechada (botão 'Fechar' do 'Cabeçalho').")
+                    return True
+        except Exception as e:
+            print(f"{tag}  [AVISO] Clique em 'Fechar' do 'Cabeçalho' falhou: {e}")
+            break
+        await page.wait_for_timeout(1000)
+
+    if usar_metodo_antigo:
+        print(f"{tag}  [INFO] Botão 'Fechar' do 'Cabeçalho' não encontrado; usando o método antigo de fechar a prévia.")
+        if await fechar_painel_preview_copilot(page, tag):
+            print(f"{tag}  [OK] Visualização prévia fechada (método antigo).")
             return True
-    except Exception as e:
-        print(f"{tag}  [AVISO] Não consegui fechar a visualização prévia pelo 'Cabeçalho': {e}")
     return False
+
+
+async def _eh_botao_da_mensagem_do_usuario(btn) -> bool:
+    """O 'More actions' da barra da MENSAGEM DO USUÁRIO não é o do card do .docx (log do teste real)."""
+    try:
+        return await btn.evaluate(
+            """el => !!el.closest('[class*="UserMessage"]')
+                   || (el.className || '').toString().includes('actionBarAccessibleButton')"""
+        )
+    except Exception:
+        return False
 
 
 async def baixar_docx_mais_acoes_gravado(page: Page, pasta_projeto: Path, tag: str) -> Path | None:
     """'Mais ações' do card do .docx -> primeiro item do menu (ícone 'Baixar'), como na gravação."""
     botoes = page.get_by_role("button", name=re.compile(r"^(Mais ações|More actions)$", re.IGNORECASE))
     visiveis = []
+    ignorados = 0
     for i in range(await botoes.count()):
         btn = botoes.nth(i)
         try:
-            if await btn.is_visible():
-                visiveis.append(btn)
+            if not await btn.is_visible():
+                continue
+            if await _eh_botao_da_mensagem_do_usuario(btn):
+                ignorados += 1
+                continue
+            visiveis.append(btn)
         except Exception:
             pass
+    # Na gravação, o botão do card é 'Mais ações' (português); testa esses primeiro.
+    em_pt = []
+    for btn in visiveis:
+        try:
+            if re.fullmatch(r"\s*Mais ações\s*", await btn.get_attribute("aria-label") or "", re.IGNORECASE):
+                em_pt.append(btn)
+        except Exception:
+            pass
+    visiveis = [b for b in visiveis if b not in em_pt] + em_pt  # testados de trás para frente
+    print(f"{tag}  [INFO] 'Mais ações' candidatos: {len(visiveis)} (ignorados da mensagem do usuário: {ignorados}).")
     if not visiveis:
         print(f"{tag}  [AVISO] Botão 'Mais ações' do card do .docx não encontrado.")
         return None
@@ -456,6 +497,7 @@ async def baixar_docx_mais_acoes_gravado(page: Page, pasta_projeto: Path, tag: s
             if not (await item.count() > 0 and await item.is_visible()):
                 item = page.locator(".fui-MenuItem__icon > .fui-Icon").first  # seletor gravado
             if not (await item.count() > 0 and await item.is_visible()):
+                print(f"{tag}  [INFO] Menu aberto não tem 'Baixar'; tentando o próximo 'Mais ações'.")
                 await page.keyboard.press("Escape")
                 continue
 
@@ -796,7 +838,7 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
         docx_gravado = await baixar_docx_mais_acoes_gravado(page, pasta_projeto, tag)
         if docx_gravado:
             arquivos_salvos.append(docx_gravado.name)
-        await fechar_previa_copilot_gravado(page, tag)  # caso o clique tenha reaberto a prévia
+        await fechar_previa_copilot_gravado(page, tag, usar_metodo_antigo=False)  # caso o clique tenha reaberto a prévia
         json_gravado = await baixar_json_link_gravado(page, pasta_projeto, tag)
         if json_gravado:
             arquivos_salvos.append(json_gravado.name)
