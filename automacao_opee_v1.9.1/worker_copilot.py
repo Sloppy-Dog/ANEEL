@@ -447,7 +447,13 @@ async def fechar_previa_copilot_gravado(page: Page, tag: str, usar_metodo_antigo
                     if await botao.nth(i).is_visible():
                         try:
                             nome_barra = await botao.nth(i).evaluate(
-                                "el => (el.closest('[role=toolbar]') || {}).getAttribute?.('aria-label') || '?'"
+                                """el => {
+                                    const t = el.closest('[role=toolbar]');
+                                    if (!t) return '?';
+                                    const ids = (t.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean);
+                                    const porId = ids.map(i => (el.ownerDocument.getElementById(i) || {}).textContent || '').join(' ').trim();
+                                    return t.getAttribute('aria-label') || porId || '?';
+                                }"""
                             )
                         except Exception:
                             nome_barra = "?"
