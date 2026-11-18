@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import sys
 import time
 from pathlib import Path
 from playwright.async_api import async_playwright
@@ -7,6 +8,7 @@ from playwright.async_api import async_playwright
 from config import (
     DIR_BAIXADOS,
     DIR_CONCLUIDOS,
+    DIR_ERROS,
     ARQUIVO_SENTINELA,
     MAX_PROJETOS_POR_EXECUCAO,
     inicializar_pastas,
@@ -20,6 +22,8 @@ from scraper_opee import executar_scraper, inteiro_positivo
 from worker_copilot import (
     LOCK_FILA_GLOBAL,
     executar_pool_copilot_async,
+    motivo_parada,
+    parada_solicitada,
     recuperar_pastas_com_erro,
 )
 from worker_chatgpt import executar_pool_chatgpt_async
@@ -49,7 +53,7 @@ async def _executar_pools_combinados_async(agentes_copilot: int, agentes_gpt: in
     Executa simultaneamente os agentes do Copilot (-a) e do ChatGPT (-g)
     compartilhando o mesmo navegador CDP e a mesma fila de projetos (01_Baixados_OPEE).
     """
-    if contar_pendentes_na_fila() == 0:
+    if parada_solicitada() or contar_pendentes_na_fila() == 0:
         return {
             "sucessos_copilot": 0,
             "falhas_copilot": 0,
@@ -134,8 +138,16 @@ def rodar_modo_intercalado(
         if projetos_planilha is not None:
             pintados_roxo_total += sincronizar_concluidos_planilha(caminho_planilha)
 
+    if parada_solicitada() or (falhas_copilot + falhas_gpt) > 0:
+        print("[PARADA] Erro na fila inicial. Nenhum projeto novo será baixado nem avaliado.")
+        restantes_iniciais = 0
+    else:
+        restantes_iniciais = None
+
     fila_candidatos = list(projetos_planilha) if projetos_planilha is not None else None
     restantes = min(quantidade, len(fila_candidatos)) if fila_candidatos is not None else quantidade
+    if restantes_iniciais is not None:
+        restantes = restantes_iniciais
     ciclo = 1
 
     while restantes > 0:
@@ -185,8 +197,8 @@ def rodar_modo_intercalado(
         if projetos_planilha is not None:
             pintados_roxo_total += sincronizar_concluidos_planilha(caminho_planilha)
 
-        if (res_ciclo["falhas_copilot"] + res_ciclo["falhas_gpt"]) > 0:
-            print("[AVISO] Ocorreu falha em pelo menos um agente. Interrompendo ciclo por segurança.")
+        if parada_solicitada() or (res_ciclo["falhas_copilot"] + res_ciclo["falhas_gpt"]) > 0:
+            print("[PARADA] Ocorreu falha em pelo menos um agente. Nenhum projeto novo será baixado nem avaliado.")
             break
 
         ciclo += 1
@@ -397,6 +409,18 @@ def main():
         print(f" - Tempo total decorrido           : {duracao_min:.1f} minuto(s)")
         print(f" - Pasta final dos concluídos      : {DIR_CONCLUIDOS}")
         print("=" * 75)
+
+        if parada_solicitada() or total_falhas > 0:
+            print("\n" + "!" * 75)
+            print(" EXECUÇÃO INTERROMPIDA POR ERRO")
+            print("!" * 75)
+            if motivo_parada():
+                print(f" Motivo: {motivo_parada()}")
+            print(f" O projeto com erro está em: {DIR_ERROS}")
+            print(" A aba do erro foi mantida aberta no navegador para conferência.")
+            print(" Depois de verificar, rode novamente com  -r  para devolver o projeto à fila.")
+            print("!" * 75)
+            sys.exit(1)
 
         if not args.continuo:
             break

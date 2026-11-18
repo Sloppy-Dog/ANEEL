@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from playwright.async_api import async_playwright, Page
@@ -21,8 +22,10 @@ NOME_AGENTE = getattr(config, "NOME_AGENTE_COPILOT", "AvaliaPEE_CHECKLIST5.6.2_1
 COPILOT_URL = getattr(config, "COPILOT_URL", "https://copilot.cloud.microsoft/")
 
 PROMPT_ANALISE = "Analise os arquivos anexados e execute suas instruções"
-TIMEOUT_RESPOSTA_IA_MS = 300 * 1000
-MAX_TENTATIVAS_POR_PROJETO = 3
+# Tempo máximo de espera pela análise da IA (padrão: 10 minutos, ajustável no config.py)
+TIMEOUT_RESPOSTA_IA_MS = int(getattr(config, "TIMEOUT_RESPOSTA_IA_MINUTOS", 10) * 60 * 1000)
+MAX_TENTATIVAS_POR_PROJETO = max(1, int(getattr(config, "MAX_TENTATIVAS_POR_PROJETO", 1)))
+PARAR_NO_PRIMEIRO_ERRO = bool(getattr(config, "PARAR_NO_PRIMEIRO_ERRO", True))
 
 # Quantidade mínima de arquivos gerados pela IA que OBRIGATORIAMENTE devem ser salvos
 # (1 .docx + 1 .json = 2 arquivos). Se salvar menos que isso, lança erro e NÃO dá falso positivo!
@@ -32,6 +35,27 @@ QTD_MINIMA_ARQUIVOS_RETORNO = 2
 LOCK_FILA_GLOBAL = asyncio.Lock()
 LOCK_UI_NAVEGACAO = asyncio.Lock()
 URL_DIRETA_AGENTE: str | None = None
+
+# Sinal de parada compartilhado por TODOS os agentes (Copilot e ChatGPT).
+# Quando um agente falha e PARAR_NO_PRIMEIRO_ERRO = True, o sinal é ligado:
+# nenhum agente retira novo projeto da fila e nenhuma aba nova é aberta.
+_PARADA = threading.Event()
+_MOTIVO_PARADA: list[str] = []
+
+
+def solicitar_parada(motivo: str):
+    """Liga o sinal de parada global (só o primeiro motivo é guardado)."""
+    if not _PARADA.is_set():
+        _MOTIVO_PARADA.append(motivo)
+        _PARADA.set()
+
+
+def parada_solicitada() -> bool:
+    return _PARADA.is_set()
+
+
+def motivo_parada() -> str | None:
+    return _MOTIVO_PARADA[0] if _MOTIVO_PARADA else None
 
 
 def inteiro_positivo(valor) -> int:
@@ -789,7 +813,13 @@ async def loop_do_agente(
     await asyncio.sleep((worker_id - 1) * 1.5)
 
     while True:
+        if parada_solicitada():
+            print(f"[Copilot #{worker_id}] Parada solicitada; não vou pegar novos projetos da fila.")
+            break
+
         async with lock_fila:
+            if parada_solicitada():
+                break
             pasta_atual = obter_proximo_projeto_sincrono()
             if pasta_atual:
                 print(f"\n[Copilot #{worker_id}] Pegou da fila: {pasta_atual.name}")
@@ -801,6 +831,9 @@ async def loop_do_agente(
         ultimo_erro = None
 
         for tentativa in range(1, MAX_TENTATIVAS_POR_PROJETO + 1):
+            if tentativa > 1 and parada_solicitada():
+                # Outro agente já falhou: não abre nova aba para tentar de novo.
+                break
             page = None
             try:
                 page, qtd_links_antes, tag = await preparar_e_enviar_projeto_copilot(
@@ -838,6 +871,14 @@ async def loop_do_agente(
             if destino_erro.exists():
                 shutil.rmtree(destino_erro)
             shutil.move(str(pasta_atual), str(destino_erro))
+
+            if PARAR_NO_PRIMEIRO_ERRO:
+                solicitar_parada(f"Copilot #{worker_id} falhou em '{pasta_atual.name}': {ultimo_erro}")
+                print(
+                    f"[PARADA | Copilot #{worker_id}] Pipeline interrompido. A aba com o erro foi mantida aberta "
+                    f"para conferência e o projeto está em {DIR_ERROS.name}."
+                )
+                break
 
         if limite_por_worker_unico:
             break

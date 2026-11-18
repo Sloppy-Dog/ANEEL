@@ -19,7 +19,9 @@ from worker_copilot import (
     LOCK_UI_NAVEGACAO,
     inteiro_positivo,
     obter_proximo_projeto_sincrono,
+    parada_solicitada,
     recuperar_pastas_com_erro,
+    solicitar_parada,
 )
 
 #NOME_GPT = "AvaliaPEE_Checklist_5.6.2"
@@ -29,7 +31,8 @@ PROMPT_FALLBACK_GPT = "Avalie o projeto de EE em anexo seguindo rigorosamente o 
 
 # Tempo máximo de espera pela análise da IA (padrão: 10 minutos, ajustável no config.py)
 TIMEOUT_RESPOSTA_IA_MS = int(getattr(config, "TIMEOUT_RESPOSTA_IA_MINUTOS", 10) * 60 * 1000)
-MAX_TENTATIVAS_POR_PROJETO = 3
+MAX_TENTATIVAS_POR_PROJETO = max(1, int(getattr(config, "MAX_TENTATIVAS_POR_PROJETO", 1)))
+PARAR_NO_PRIMEIRO_ERRO = bool(getattr(config, "PARAR_NO_PRIMEIRO_ERRO", True))
 
 URL_DIRETA_GPT: str | None = None
 
@@ -329,7 +332,13 @@ async def loop_do_agente_chatgpt(
     await asyncio.sleep((worker_id - 1) * 1.5)
 
     while True:
+        if parada_solicitada():
+            print(f"[ChatGPT #{worker_id}] Parada solicitada; não vou pegar novos projetos da fila.")
+            break
+
         async with lock_fila:
+            if parada_solicitada():
+                break
             pasta_atual = obter_proximo_projeto_sincrono()
             if pasta_atual:
                 print(f"\n[ChatGPT #{worker_id}] Pegou da fila: {pasta_atual.name}")
@@ -341,6 +350,9 @@ async def loop_do_agente_chatgpt(
         ultimo_erro = None
 
         for tentativa in range(1, MAX_TENTATIVAS_POR_PROJETO + 1):
+            if tentativa > 1 and parada_solicitada():
+                # Outro agente já falhou: não abre nova aba para tentar de novo.
+                break
             page = None
             try:
                 page, qtd_botoes_antes, tag = await preparar_e_enviar_projeto_chatgpt(
@@ -378,6 +390,14 @@ async def loop_do_agente_chatgpt(
             if destino_erro.exists():
                 shutil.rmtree(destino_erro)
             shutil.move(str(pasta_atual), str(destino_erro))
+
+            if PARAR_NO_PRIMEIRO_ERRO:
+                solicitar_parada(f"ChatGPT #{worker_id} falhou em '{pasta_atual.name}': {ultimo_erro}")
+                print(
+                    f"[PARADA | ChatGPT #{worker_id}] Pipeline interrompido. A aba com o erro foi mantida aberta "
+                    f"para conferência e o projeto está em {DIR_ERROS.name}."
+                )
+                break
 
         if limite_por_worker_unico:
             break

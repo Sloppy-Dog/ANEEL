@@ -1,4 +1,25 @@
-# Automação OPEE — versão 1.8
+# Automação OPEE — versão 1.9.1
+
+## Novidades da v1.9.1
+
+- **Parada no primeiro erro.** Quando a avaliação de um projeto falha (por exemplo, o `.json` da avaliação final não foi baixado), o bot **para**:
+  - não abre uma nova aba para tentar o mesmo projeto de novo;
+  - nenhum agente (Copilot ou ChatGPT) retira outro projeto da fila;
+  - no modo intercalado, nenhum projeto novo é baixado do OPEE;
+  - o modo `--continuo` não agenda nova varredura;
+  - o `main.py` mostra o resumo, o motivo da parada e encerra com código 1.
+
+  A aba com o erro fica **aberta** para você conferir. O projeto vai para `04_Erros`; depois de verificar, rode com `-r` para devolvê-lo à fila. Os demais projetos continuam em `01_Baixados_OPEE`.
+
+  Com mais de um agente em paralelo (`-a 2`, `-g 1` etc.), os agentes que já estavam avaliando outro projeto terminam esse projeto, mas não pegam mais nenhum.
+
+- **Novas opções em `config.py`:**
+  - `PARAR_NO_PRIMEIRO_ERRO = True` — coloque `False` para voltar ao comportamento antigo (seguir para o próximo projeto).
+  - `MAX_TENTATIVAS_POR_PROJETO = 1` — antes eram 3 tentativas fixas, e cada uma abria uma aba nova.
+- **Copilot respeita `TIMEOUT_RESPOSTA_IA_MINUTOS`.** O `worker_copilot.py` usava 5 minutos fixos no código; agora lê os 10 minutos do `config.py`, como o ChatGPT.
+- `ONEDRIVE_BASE_DIR` em `config.py` aponta para a pasta `automacao_opee_v1.9.1`. Para continuar com o histórico e as filas da v1.9, copie para a nova pasta `projetos_baixados.txt` e as pastas `01_Baixados_OPEE` a `04_Erros`, ou volte o caminho para a pasta antiga.
+
+---
 
 ## Novidades da v1.8
 
