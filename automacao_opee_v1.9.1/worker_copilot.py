@@ -395,7 +395,7 @@ async def fechar_painel_preview_copilot(page: Page, tag: str) -> bool:
 
 # ==============================================================================
 # FLUXO GRAVADO NO PLAYWRIGHT CODEGEN (v1.9.1)
-#   page.get_by_role("toolbar", name="Cabeçalho").get_by_label("Fechar").click()
+#   page.get_by_role("toolbar", name="Controles Adicionais").get_by_role("button", name="Fechar").click()
 #   page.get_by_role("button", name="Mais ações").click()
 #   with page.expect_download():  page.locator(".fui-MenuItem__icon > .fui-Icon").first.click()   -> .docx
 #   with page.expect_download():  page.get_by_role("link", name="Baixar o JSON final").click()    -> .json
@@ -422,6 +422,14 @@ async def _salvar_download_copilot(download, pasta: Path, nome_padrao: str) -> P
     return caminho
 
 
+# Barras da prévia que contêm o botão "Fechar", conforme as gravações:
+#   page.get_by_role("toolbar", name="Controles Adicionais").get_by_role("button", name="Fechar")
+#   page.get_by_role("toolbar", name="Cabeçalho").get_by_label("Fechar")
+PADRAO_BARRA_PREVIA_COPILOT = re.compile(
+    r"Controles Adicionais|Additional Controls|Cabeçalho|Header", re.IGNORECASE
+)
+
+
 async def fechar_previa_copilot_gravado(page: Page, tag: str, usar_metodo_antigo: bool = True) -> bool:
     """
     Fecha a visualização prévia pelo botão 'Fechar' da barra 'Cabeçalho' (seletor gravado).
@@ -432,22 +440,28 @@ async def fechar_previa_copilot_gravado(page: Page, tag: str, usar_metodo_antigo
     prazo = time.monotonic() + 6
     while time.monotonic() < prazo:
         for idx_frame, frame in enumerate(page.frames):
-            barra = frame.get_by_role("toolbar", name=re.compile(r"Cabeçalho|Header", re.IGNORECASE))
-            botao = barra.get_by_label(re.compile(r"^(Fechar|Close)", re.IGNORECASE))
+            barra = frame.get_by_role("toolbar", name=PADRAO_BARRA_PREVIA_COPILOT)
+            botao = barra.get_by_role("button", name=re.compile(r"^\s*(Fechar|Close)\b", re.IGNORECASE))
             try:
                 for i in range(await botao.count()):
                     if await botao.nth(i).is_visible():
+                        try:
+                            nome_barra = await botao.nth(i).evaluate(
+                                "el => (el.closest('[role=toolbar]') || {}).getAttribute?.('aria-label') || '?'"
+                            )
+                        except Exception:
+                            nome_barra = "?"
                         await botao.nth(i).click(timeout=5000)
                         await page.wait_for_timeout(1200)
                         onde = "página" if frame == page.main_frame else f"iframe #{idx_frame}"
-                        print(f"{tag}  [OK] Visualização prévia fechada (botão 'Fechar' do 'Cabeçalho', {onde}).")
+                        print(f"{tag}  [OK] Visualização prévia fechada (botão 'Fechar' da barra '{nome_barra}', {onde}).")
                         return True
             except Exception as e:
                 print(f"{tag}  [AVISO] Clique em 'Fechar' do 'Cabeçalho' falhou: {e}")
         await page.wait_for_timeout(1000)
 
     if usar_metodo_antigo:
-        print(f"{tag}  [INFO] Botão 'Fechar' do 'Cabeçalho' não encontrado; usando o método antigo de fechar a prévia.")
+        print(f"{tag}  [INFO] Botão 'Fechar' da prévia não encontrado; usando o método antigo de fechar a prévia.")
         if await fechar_painel_preview_copilot(page, tag):
             print(f"{tag}  [OK] Visualização prévia fechada (método antigo).")
             return True
