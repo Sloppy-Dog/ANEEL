@@ -19,7 +19,9 @@ from worker_copilot import (
     LOCK_UI_NAVEGACAO,
     inteiro_positivo,
     obter_proximo_projeto_sincrono,
+    parada_solicitada,
     recuperar_pastas_com_erro,
+    solicitar_parada,
 )
 
 #NOME_GPT = "AvaliaPEE_Checklist_5.6.2"
@@ -29,7 +31,8 @@ PROMPT_FALLBACK_GPT = "Avalie o projeto de EE em anexo seguindo rigorosamente o 
 
 # Tempo máximo de espera pela análise da IA (padrão: 10 minutos, ajustável no config.py)
 TIMEOUT_RESPOSTA_IA_MS = int(getattr(config, "TIMEOUT_RESPOSTA_IA_MINUTOS", 10) * 60 * 1000)
-MAX_TENTATIVAS_POR_PROJETO = 3
+MAX_TENTATIVAS_POR_PROJETO = max(1, int(getattr(config, "MAX_TENTATIVAS_POR_PROJETO", 1)))
+PARAR_NO_PRIMEIRO_ERRO = bool(getattr(config, "PARAR_NO_PRIMEIRO_ERRO", True))
 
 URL_DIRETA_GPT: str | None = None
 
@@ -120,6 +123,48 @@ def localizar_botoes_baixar_gpt(page: Page):
 
 SEGUNDOS_ESTABILIDADE_RESPOSTA_GPT = 10
 
+# Links de download escritos pelo próprio GPT na resposta.
+# Gravação (Playwright codegen):  page.get_by_role("link", name="Baixar o JSON final")
+# O texto é gerado pela IA e pode variar ("Baixar JSON", "Download do JSON final"...),
+# por isso o padrão aceita qualquer link que cite JSON (ou DOCX/Word).
+PADRAO_LINK_JSON_GPT = re.compile(r"(baixar|download).*\bjson\b|\.json\b", re.IGNORECASE)
+PADRAO_LINK_DOCX_GPT = re.compile(r"(baixar|download).*\b(docx?|word)\b|\.docx?\b", re.IGNORECASE)
+
+
+async def fechar_visualizador_gpt(page: Page, tag: str) -> bool:
+    """Fecha o visualizador de arquivo do ChatGPT (gravação: botão 'Fechar visualizador')."""
+    botao = page.get_by_role("button", name=re.compile(r"^(Fechar visualizador|Close viewer)$", re.IGNORECASE))
+    fechou = False
+    try:
+        for i in range(await botao.count() - 1, -1, -1):
+            if await botao.nth(i).is_visible():
+                await botao.nth(i).click(timeout=5000)
+                await page.wait_for_timeout(1000)
+                print(f"{tag}  [OK] Visualizador de arquivo fechado.")
+                fechou = True
+                break
+    except Exception as e:
+        print(f"{tag}  [AVISO] Não consegui fechar o visualizador: {e}")
+    if fechou:
+        # A gravação clica na página ('html') para tirar o foco; Escape faz o mesmo
+        # sem o risco de o clique no meio da tela acertar um link ou botão.
+        try:
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(500)
+        except Exception:
+            pass
+    return fechou
+
+
+def _tipos_salvos(salvos: list[Path]) -> set[str]:
+    return {".docx" if p.suffix.lower() in (".docx", ".doc") else p.suffix.lower() for p in salvos}
+
+
+def localizar_link_download_gpt(page: Page, ext: str):
+    """Links 'Baixar o JSON final' / 'Baixar o DOCX ...' da resposta do ChatGPT."""
+    padrao = PADRAO_LINK_JSON_GPT if ext == ".json" else PADRAO_LINK_DOCX_GPT
+    return page.get_by_role("link", name=padrao)
+
 
 def _nome_seguro_gpt(nome: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", nome or "").rstrip(" .")
@@ -155,6 +200,8 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
     links_arquivos = page.get_by_role("link").filter(
         has_text=re.compile(r"\.(json|docx|doc)\b", re.IGNORECASE)
     )
+    link_json = localizar_link_download_gpt(page, ".json")
+    link_docx = localizar_link_download_gpt(page, ".docx")
     botao_parar = page.locator(
         'button[data-testid="stop-button"], button[aria-label*="Parar"], button[aria-label*="Stop"]'
     )
@@ -177,7 +224,12 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
             ultimo_texto = texto
             estavel_desde = time.monotonic()
 
-        tem_arquivo = (await botoes_baixar.count() > qtd_botoes_antes) or (await links_arquivos.count() > 0)
+        tem_arquivo = (
+            (await botoes_baixar.count() > qtd_botoes_antes)
+            or (await links_arquivos.count() > 0)
+            or (await link_json.count() > 0)
+            or (await link_docx.count() > 0)
+        )
         gerando = await botao_parar.count() > 0 and await botao_parar.first.is_visible()
         if tem_arquivo and not gerando and time.monotonic() - estavel_desde >= SEGUNDOS_ESTABILIDADE_RESPOSTA_GPT:
             print(f"{tag}  -> Resposta concluída em {(time.monotonic() - inicio) / 60:.1f} min.")
@@ -192,9 +244,38 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
 
     salvos: list[Path] = []
 
-    # 1. Botões 'Baixar arquivo' novos (gerados nesta resposta)
+    # Fluxo gravado: primeiro fecha o visualizador que o ChatGPT abre com o arquivo gerado.
+    await fechar_visualizador_gpt(page, tag)
+
+    # 0. Links "Baixar o JSON final" / "Baixar o DOCX ..." (fluxo gravado com o codegen).
+    #    Usa o ÚLTIMO link de cada tipo, que é o da resposta mais recente.
+    for ext, link in ((".json", link_json), (".docx", link_docx)):
+        if await link.count() == 0:
+            continue
+        alvo = link.last
+        try:
+            nome_link = (await alvo.inner_text(timeout=3000)).strip() or ext
+            await alvo.scroll_into_view_if_needed(timeout=2000)
+            async with page.expect_download(timeout=60000) as dl_info:
+                await alvo.click()
+            caminho = await _salvar_download_gpt(await dl_info.value, pasta_projeto,
+                                                 f"resultado_gpt{ext}", nomes_anexos)
+            if caminho and caminho.suffix.lower() in ((".docx", ".doc") if ext == ".docx" else (ext,)):
+                salvos.append(caminho)
+                print(f"{tag}  [OK] Salvo: {caminho.name} (link '{nome_link}')")
+            elif caminho:
+                salvos.append(caminho)
+                print(f"{tag}  [AVISO] Link '{nome_link}' baixou '{caminho.name}' (extensão inesperada).")
+        except Exception as e:
+            print(f"{tag} [AVISO] Link de download {ext} não baixou ({e}). Tentando os outros métodos...")
+
+    # 1. Botões 'Baixar arquivo' novos (gerados nesta resposta). Fluxo gravado:
+    #    page.get_by_role("button", name="Baixar arquivo").click()  -> 1 download por botão
+    await fechar_visualizador_gpt(page, tag)
     total_botoes = await botoes_baixar.count()
     novos_indices = list(range(qtd_botoes_antes, total_botoes))
+    if any(p.suffix.lower() == ".json" for p in salvos) and any(p.suffix.lower() in (".docx", ".doc") for p in salvos):
+        novos_indices = []  # o .docx e o .json já vieram pelos links
     if novos_indices:
         print(f"{tag}  -> {len(novos_indices)} botão(ões) 'Baixar arquivo' detectado(s)! Baixando...")
     for pos, idx in enumerate(novos_indices, start=1):
@@ -203,14 +284,29 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
             await botao.scroll_into_view_if_needed(timeout=2000)
         except Exception:
             pass
+        if {".docx", ".json"} <= _tipos_salvos(salvos):
+            break  # já tem os dois arquivos
         try:
-            # O botão real costuma ficar sob o botão invisível "Abrir prévia": clique via JS,
-            # mas DENTRO do expect_download para não perder o evento de download.
-            async with page.expect_download(timeout=60000) as dl_info:
-                await botao.evaluate("el => el.click()")
-            caminho = await _salvar_download_gpt(await dl_info.value, pasta_projeto,
+            download = None
+            # a) Clique normal, como na gravação (com o visualizador já fechado).
+            try:
+                async with page.expect_download(timeout=20000) as dl_info:
+                    await botao.click(timeout=5000)
+                download = await dl_info.value
+            except Exception as e_clique:
+                print(f"{tag}  [AVISO] Clique normal no botão #{idx} não baixou ({e_clique}). Tentando via JS...")
+                # b) Reserva: o clique pode ter aberto o visualizador ('Abrir prévia' sobre o botão).
+                await fechar_visualizador_gpt(page, tag)
+                async with page.expect_download(timeout=60000) as dl_info:
+                    await botao.evaluate("el => el.click()")
+                download = await dl_info.value
+            tipos_antes = _tipos_salvos(salvos)
+            caminho = await _salvar_download_gpt(download, pasta_projeto,
                                                  f"resultado_gpt_{pos}.dat", nomes_anexos)
-            if caminho:
+            if caminho and _tipos_salvos([caminho]) & tipos_antes:
+                print(f"{tag}  [IGNORADO] '{caminho.name}' repete um tipo já salvo; descartado.")
+                caminho.unlink(missing_ok=True)
+            elif caminho:
                 salvos.append(caminho)
                 print(f"{tag}  [OK] Salvo: {caminho.name}")
             else:
@@ -220,7 +316,8 @@ async def aguardar_e_baixar_arquivos_chatgpt(page: Page, pasta_projeto: Path, qt
 
     # 2. Links diretos, para o que ainda faltar (.docx ou .json)
     def falta(ext: str) -> bool:
-        return not any(p.suffix.lower() == ext for p in salvos)
+        aceitos = (".docx", ".doc") if ext == ".docx" else (ext,)
+        return not any(p.suffix.lower() in aceitos for p in salvos)
 
     if falta(".docx") or falta(".json"):
         for idx in range(await links_arquivos.count()):
@@ -329,7 +426,13 @@ async def loop_do_agente_chatgpt(
     await asyncio.sleep((worker_id - 1) * 1.5)
 
     while True:
+        if parada_solicitada():
+            print(f"[ChatGPT #{worker_id}] Parada solicitada; não vou pegar novos projetos da fila.")
+            break
+
         async with lock_fila:
+            if parada_solicitada():
+                break
             pasta_atual = obter_proximo_projeto_sincrono()
             if pasta_atual:
                 print(f"\n[ChatGPT #{worker_id}] Pegou da fila: {pasta_atual.name}")
@@ -341,6 +444,9 @@ async def loop_do_agente_chatgpt(
         ultimo_erro = None
 
         for tentativa in range(1, MAX_TENTATIVAS_POR_PROJETO + 1):
+            if tentativa > 1 and parada_solicitada():
+                # Outro agente já falhou: não abre nova aba para tentar de novo.
+                break
             page = None
             try:
                 page, qtd_botoes_antes, tag = await preparar_e_enviar_projeto_chatgpt(
@@ -378,6 +484,14 @@ async def loop_do_agente_chatgpt(
             if destino_erro.exists():
                 shutil.rmtree(destino_erro)
             shutil.move(str(pasta_atual), str(destino_erro))
+
+            if PARAR_NO_PRIMEIRO_ERRO:
+                solicitar_parada(f"ChatGPT #{worker_id} falhou em '{pasta_atual.name}': {ultimo_erro}")
+                print(
+                    f"[PARADA | ChatGPT #{worker_id}] Pipeline interrompido. A aba com o erro foi mantida aberta "
+                    f"para conferência e o projeto está em {DIR_ERROS.name}."
+                )
+                break
 
         if limite_por_worker_unico:
             break

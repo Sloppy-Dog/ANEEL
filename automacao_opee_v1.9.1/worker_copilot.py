@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 from playwright.async_api import async_playwright, Page
@@ -21,8 +22,10 @@ NOME_AGENTE = getattr(config, "NOME_AGENTE_COPILOT", "AvaliaPEE_CHECKLIST5.6.2_1
 COPILOT_URL = getattr(config, "COPILOT_URL", "https://copilot.cloud.microsoft/")
 
 PROMPT_ANALISE = "Analise os arquivos anexados e execute suas instruções"
-TIMEOUT_RESPOSTA_IA_MS = 300 * 1000
-MAX_TENTATIVAS_POR_PROJETO = 3
+# Tempo máximo de espera pela análise da IA (padrão: 10 minutos, ajustável no config.py)
+TIMEOUT_RESPOSTA_IA_MS = int(getattr(config, "TIMEOUT_RESPOSTA_IA_MINUTOS", 10) * 60 * 1000)
+MAX_TENTATIVAS_POR_PROJETO = max(1, int(getattr(config, "MAX_TENTATIVAS_POR_PROJETO", 1)))
+PARAR_NO_PRIMEIRO_ERRO = bool(getattr(config, "PARAR_NO_PRIMEIRO_ERRO", True))
 
 # Quantidade mínima de arquivos gerados pela IA que OBRIGATORIAMENTE devem ser salvos
 # (1 .docx + 1 .json = 2 arquivos). Se salvar menos que isso, lança erro e NÃO dá falso positivo!
@@ -32,6 +35,27 @@ QTD_MINIMA_ARQUIVOS_RETORNO = 2
 LOCK_FILA_GLOBAL = asyncio.Lock()
 LOCK_UI_NAVEGACAO = asyncio.Lock()
 URL_DIRETA_AGENTE: str | None = None
+
+# Sinal de parada compartilhado por TODOS os agentes (Copilot e ChatGPT).
+# Quando um agente falha e PARAR_NO_PRIMEIRO_ERRO = True, o sinal é ligado:
+# nenhum agente retira novo projeto da fila e nenhuma aba nova é aberta.
+_PARADA = threading.Event()
+_MOTIVO_PARADA: list[str] = []
+
+
+def solicitar_parada(motivo: str):
+    """Liga o sinal de parada global (só o primeiro motivo é guardado)."""
+    if not _PARADA.is_set():
+        _MOTIVO_PARADA.append(motivo)
+        _PARADA.set()
+
+
+def parada_solicitada() -> bool:
+    return _PARADA.is_set()
+
+
+def motivo_parada() -> str | None:
+    return _MOTIVO_PARADA[0] if _MOTIVO_PARADA else None
 
 
 def inteiro_positivo(valor) -> int:
@@ -362,6 +386,123 @@ async def fechar_painel_preview_copilot(page: Page, tag: str) -> bool:
     return fechou
 
 
+# ==============================================================================
+# FLUXO GRAVADO NO PLAYWRIGHT CODEGEN (v1.9.1)
+#   page.get_by_role("toolbar", name="Cabeçalho").get_by_label("Fechar").click()
+#   page.get_by_role("button", name="Mais ações").click()
+#   with page.expect_download():  page.locator(".fui-MenuItem__icon > .fui-Icon").first.click()   -> .docx
+#   with page.expect_download():  page.get_by_role("link", name="Baixar o JSON final").click()    -> .json
+# ==============================================================================
+
+# O texto do link é escrito pela IA e pode variar ("Baixar JSON", "Download do JSON final"...).
+PADRAO_LINK_JSON_COPILOT = re.compile(r"(baixar|download).*\bjson\b", re.IGNORECASE)
+
+
+def _nome_seguro(nome: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", nome or "").rstrip(" .")
+
+
+async def _salvar_download_copilot(download, pasta: Path, nome_padrao: str) -> Path | None:
+    """Salva o download sem nunca sobrescrever um anexo original do projeto (usa sufixo _IA)."""
+    nome = _nome_seguro(download.suggested_filename) or nome_padrao
+    caminho = pasta / nome
+    if caminho.exists():
+        caminho = pasta / f"{Path(nome).stem}_IA{Path(nome).suffix}"
+    await download.save_as(str(caminho))
+    if not caminho.is_file() or caminho.stat().st_size == 0:
+        caminho.unlink(missing_ok=True)
+        return None
+    return caminho
+
+
+async def fechar_previa_copilot_gravado(page: Page, tag: str) -> bool:
+    """Fecha a visualização prévia pelo botão 'Fechar' da barra 'Cabeçalho' (seletor gravado)."""
+    barra = page.get_by_role("toolbar", name=re.compile(r"^(Cabeçalho|Header)$", re.IGNORECASE))
+    botao = barra.get_by_label(re.compile(r"^(Fechar|Close)$", re.IGNORECASE))
+    try:
+        if await botao.count() > 0 and await botao.first.is_visible():
+            await botao.first.click(timeout=5000)
+            await page.wait_for_timeout(1200)
+            print(f"{tag}  [OK] Visualização prévia fechada.")
+            return True
+    except Exception as e:
+        print(f"{tag}  [AVISO] Não consegui fechar a visualização prévia pelo 'Cabeçalho': {e}")
+    return False
+
+
+async def baixar_docx_mais_acoes_gravado(page: Page, pasta_projeto: Path, tag: str) -> Path | None:
+    """'Mais ações' do card do .docx -> primeiro item do menu (ícone 'Baixar'), como na gravação."""
+    botoes = page.get_by_role("button", name=re.compile(r"^(Mais ações|More actions)$", re.IGNORECASE))
+    visiveis = []
+    for i in range(await botoes.count()):
+        btn = botoes.nth(i)
+        try:
+            if await btn.is_visible():
+                visiveis.append(btn)
+        except Exception:
+            pass
+    if not visiveis:
+        print(f"{tag}  [AVISO] Botão 'Mais ações' do card do .docx não encontrado.")
+        return None
+
+    # O card do .docx fica na resposta, abaixo de eventuais '...' do topo: testa do último para o primeiro.
+    for btn in reversed(visiveis):
+        try:
+            await btn.scroll_into_view_if_needed(timeout=2000)
+            await btn.click(timeout=4000)
+            await page.wait_for_timeout(800)
+
+            item = page.get_by_role("menuitem", name=re.compile(r"^\s*(Baixar|Download)\b", re.IGNORECASE)).first
+            if not (await item.count() > 0 and await item.is_visible()):
+                item = page.locator(".fui-MenuItem__icon > .fui-Icon").first  # seletor gravado
+            if not (await item.count() > 0 and await item.is_visible()):
+                await page.keyboard.press("Escape")
+                continue
+
+            async with page.expect_download(timeout=30000) as dl_info:
+                await item.click(timeout=4000)
+            caminho = await _salvar_download_copilot(await dl_info.value, pasta_projeto, "avaliacao_copilot.docx")
+            if caminho and caminho.suffix.lower() in (".docx", ".doc"):
+                print(f"{tag}  [OK] Salvo (.docx via 'Mais ações'): {caminho.name}")
+                return caminho
+            if caminho:
+                print(f"{tag}  [AVISO] 'Mais ações' baixou '{caminho.name}', que não é .docx. Descartado.")
+                caminho.unlink(missing_ok=True)
+        except Exception as e:
+            print(f"{tag}  [AVISO] 'Mais ações' -> 'Baixar' falhou: {e}")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+    return None
+
+
+async def baixar_json_link_gravado(page: Page, pasta_projeto: Path, tag: str) -> Path | None:
+    """Clica no link 'Baixar o JSON final' (último da resposta), como na gravação."""
+    link = page.get_by_role("link", name=PADRAO_LINK_JSON_COPILOT)
+    if await link.count() == 0:
+        print(f"{tag}  [AVISO] Link 'Baixar o JSON final' não encontrado na resposta.")
+        return None
+    alvo = link.last
+    try:
+        nome_link = (await alvo.inner_text(timeout=3000)).strip()
+        await alvo.scroll_into_view_if_needed(timeout=2000)
+        async with page.expect_download(timeout=60000) as dl_info:
+            await alvo.click(timeout=5000)
+        caminho = await _salvar_download_copilot(await dl_info.value, pasta_projeto, "avaliacao_copilot.json")
+        if caminho and caminho.suffix.lower() != ".json":
+            novo = caminho.with_suffix(".json")
+            if not novo.exists():
+                caminho.rename(novo)
+                caminho = novo
+        if caminho:
+            print(f"{tag}  [OK] Salvo (.json via link '{nome_link}'): {caminho.name}")
+        return caminho
+    except Exception as e:
+        print(f"{tag}  [AVISO] Link do JSON não baixou: {e}")
+        return None
+
+
 async def baixar_docx_via_card_copilot(page: Page, pasta_projeto: Path, pos: int, tag: str) -> bool:
     """
     Baixa o arquivo .docx que o Copilot renderiza como Card (e NÃO como link <a>):
@@ -606,13 +747,15 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
         has_text=re.compile(r"\.docx\b", re.IGNORECASE)
     )
 
+    link_json_final = page.get_by_role("link", name=PADRAO_LINK_JSON_COPILOT)
+
     prazo = time.monotonic() + (TIMEOUT_RESPOSTA_IA_MS / 1000.0)
     resposta_iniciada = False
 
     while time.monotonic() < prazo:
         total_links = await links_arquivos.count()
         tem_docx = await elementos_docx.count() > 0
-        if total_links > qtd_links_antes or tem_docx:
+        if total_links > qtd_links_antes or tem_docx or await link_json_final.count() > 0:
             resposta_iniciada = True
             break
         await page.wait_for_timeout(1500)
@@ -632,6 +775,11 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
 
     await page.wait_for_timeout(3500)
 
+    # O card do .docx costuma aparecer antes do link do JSON: espera mais um pouco por ele.
+    prazo_json = min(prazo, time.monotonic() + 60)
+    while await link_json_final.count() == 0 and time.monotonic() < prazo_json:
+        await page.wait_for_timeout(2000)
+
     async with LOCK_UI_NAVEGACAO:
         try:
             await page.bring_to_front()
@@ -641,9 +789,27 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
         arquivos_salvos = []
 
         # ----------------------------------------------------------------------
-        # PARTE A: Download do .docx (MANTIDO EXATAMENTE COMO ESTAVA!)
+        # PARTE 0: Fluxo gravado (fecha a prévia -> 'Mais ações' -> .docx -> link do JSON)
         # ----------------------------------------------------------------------
-        tem_card_docx = await elementos_docx.count() > 0
+        print(f"{tag}  -> Baixando pelo fluxo gravado (fechar prévia, .docx, .json)...")
+        await fechar_previa_copilot_gravado(page, tag)
+        docx_gravado = await baixar_docx_mais_acoes_gravado(page, pasta_projeto, tag)
+        if docx_gravado:
+            arquivos_salvos.append(docx_gravado.name)
+        await fechar_previa_copilot_gravado(page, tag)  # caso o clique tenha reaberto a prévia
+        json_gravado = await baixar_json_link_gravado(page, pasta_projeto, tag)
+        if json_gravado:
+            arquivos_salvos.append(json_gravado.name)
+
+        if docx_gravado and json_gravado:
+            print(f"{tag}  [OK] .docx e .json salvos pelo fluxo gravado.")
+            return
+        print(f"{tag}  -> Fluxo gravado incompleto; tentando os métodos anteriores para o que falta...")
+
+        # ----------------------------------------------------------------------
+        # PARTE A: Download do .docx (método anterior, só se ainda faltar)
+        # ----------------------------------------------------------------------
+        tem_card_docx = await elementos_docx.count() > 0 and not docx_gravado
         tem_link_docx = False
         total_links = await links_arquivos.count()
         for idx in range(qtd_links_antes, total_links):
@@ -681,6 +847,8 @@ async def aguardar_e_baixar_arquivos(page: Page, pasta_projeto: Path, qtd_links_
                 continue
 
             nome_link = (await link.inner_text()).strip()
+            if (docx_gravado and ".doc" in nome_link.lower()) or (json_gravado and ".json" in nome_link.lower()):
+                continue
 
             try:
                 await link.evaluate("(el, nome) => el.setAttribute('download', nome)", nome_link)
@@ -789,7 +957,13 @@ async def loop_do_agente(
     await asyncio.sleep((worker_id - 1) * 1.5)
 
     while True:
+        if parada_solicitada():
+            print(f"[Copilot #{worker_id}] Parada solicitada; não vou pegar novos projetos da fila.")
+            break
+
         async with lock_fila:
+            if parada_solicitada():
+                break
             pasta_atual = obter_proximo_projeto_sincrono()
             if pasta_atual:
                 print(f"\n[Copilot #{worker_id}] Pegou da fila: {pasta_atual.name}")
@@ -801,6 +975,9 @@ async def loop_do_agente(
         ultimo_erro = None
 
         for tentativa in range(1, MAX_TENTATIVAS_POR_PROJETO + 1):
+            if tentativa > 1 and parada_solicitada():
+                # Outro agente já falhou: não abre nova aba para tentar de novo.
+                break
             page = None
             try:
                 page, qtd_links_antes, tag = await preparar_e_enviar_projeto_copilot(
@@ -838,6 +1015,14 @@ async def loop_do_agente(
             if destino_erro.exists():
                 shutil.rmtree(destino_erro)
             shutil.move(str(pasta_atual), str(destino_erro))
+
+            if PARAR_NO_PRIMEIRO_ERRO:
+                solicitar_parada(f"Copilot #{worker_id} falhou em '{pasta_atual.name}': {ultimo_erro}")
+                print(
+                    f"[PARADA | Copilot #{worker_id}] Pipeline interrompido. A aba com o erro foi mantida aberta "
+                    f"para conferência e o projeto está em {DIR_ERROS.name}."
+                )
+                break
 
         if limite_por_worker_unico:
             break

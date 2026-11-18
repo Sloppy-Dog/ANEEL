@@ -5,7 +5,7 @@ from pathlib import Path
 # ==============================================================================
 # Dica: No Windows Explorer, clique na barra de endereço da sua pasta do OneDrive
 # e copie o caminho completo. O prefixo 'r' antes das aspas evita erros com '\'.
-ONEDRIVE_BASE_DIR = Path(r"C:\Users\Dubi Special Super\Desktop\_Automação OPEE\automacao_opee_v1.9")
+ONEDRIVE_BASE_DIR = Path(r"C:\Users\Dubi Special Super\Desktop\_Automação OPEE\automacao_opee_v1.9.1")
 
 # Subpastas de controle de estado do Pipeline
 DIR_BAIXADOS = ONEDRIVE_BASE_DIR / "01_Baixados_OPEE"
@@ -33,6 +33,18 @@ NOME_AGENTE_COPILOT = "AvaliaPEE_CHECKLIST5.6.2_1811"
 # Tempo máximo (em minutos) aguardando o Copilot ou o ChatGPT terminar a análise
 # de um projeto e gerar os arquivos .docx e .json. Vale para os dois workers.
 TIMEOUT_RESPOSTA_IA_MINUTOS = 10
+
+# Comportamento em caso de erro na avaliação (ex.: o .json não foi baixado).
+# True (padrão): no primeiro erro, o pipeline PARA. Nenhuma aba nova é aberta,
+#   nenhum outro projeto é retirado da fila e o main.py encerra com código 1.
+#   A aba com o erro fica aberta para conferência; o projeto vai para 04_Erros
+#   (use  python main.py -r  para devolvê-lo à fila depois).
+# False: comportamento antigo; o agente segue para o próximo projeto da fila.
+PARAR_NO_PRIMEIRO_ERRO = True
+
+# Quantas vezes o mesmo projeto é tentado. Cada nova tentativa abre uma NOVA aba.
+# Com 1 (padrão), não há nova tentativa: o erro já interrompe o projeto.
+MAX_TENTATIVAS_POR_PROJETO = 1
 
 # Quantidade esperada de arquivos dentro da subpasta "Relatório Final"
 QTD_ARQUIVOS_ESPERADOS = 5
